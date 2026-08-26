@@ -21,7 +21,48 @@
         <button onclick="hacerLogin()">Ingresar →</button>
         <p id="login-error" style="color:var(--rojo); text-align:center; font-size:14px; margin:8px 0 0 0;"></p>
       </div>
-      <div class="login-footer">Plataforma privada del conjunto residencial</div>
+      <div class="login-footer">
+        ¿Eres residente y aún no tienes cuenta? <a href="#" onclick="mostrarRegistro(); return false;" style="color:var(--verde-oscuro); font-weight:600;">Regístrate aquí</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== REGISTRO DE RESIDENTE ==================== -->
+  <div id="vista-registro" class="contenedor oculto">
+    <div class="login-box" style="max-width:420px;">
+      <div class="login-logo">📝</div>
+      <div class="login-titulo">Crear cuenta</div>
+      <div class="login-subtitulo">Tu solicitud será revisada por la administración</div>
+      <div class="login-card">
+        <input type="text" id="reg-nombres" placeholder="Nombres">
+        <input type="text" id="reg-apellidos" placeholder="Apellidos">
+        <select id="reg-tipo-doc">
+          <option value="CC">Cédula de ciudadanía</option>
+          <option value="CE">Cédula de extranjería</option>
+          <option value="TI">Tarjeta de identidad</option>
+          <option value="Pasaporte">Pasaporte</option>
+        </select>
+        <input type="text" id="reg-num-doc" placeholder="Número de documento">
+        <input type="tel" id="reg-telefono" placeholder="Teléfono">
+        <input type="email" id="reg-email" placeholder="Correo (será tu usuario)">
+        <div style="display:flex; gap:10px;">
+          <input type="number" id="reg-torre" placeholder="N.° de torre" style="width:50%;">
+          <input type="text" id="reg-apto" placeholder="N.° de apto" style="width:50%;">
+        </div>
+        <select id="reg-tipo-rol">
+          <option value="Propietario">Soy propietario</option>
+          <option value="Arrendatario">Soy arrendatario</option>
+        </select>
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; color:var(--texto-suave); margin-bottom:14px;">
+          <input type="checkbox" id="reg-autorizacion" style="width:auto; margin:2px 0 0 0;">
+          Autorizo el tratamiento de mis datos personales conforme a la Ley 1581 de 2012, para fines de administración y seguridad del conjunto.
+        </label>
+        <button onclick="registrarUsuarioUI()">Enviar solicitud</button>
+        <p id="reg-resultado" style="text-align:center; font-size:14px;"></p>
+      </div>
+      <div class="login-footer">
+        <a href="#" onclick="mostrarLogin(); return false;" style="color:var(--verde-oscuro); font-weight:600;">← Volver a iniciar sesión</a>
+      </div>
     </div>
   </div>
 
@@ -157,9 +198,17 @@
       </div>
     </div>
 
+    <div id="admin-panel-aprobaciones" class="oculto">
+      <div class="card">
+        <h3>✅ Solicitudes de registro</h3>
+        <div id="lista-usuarios-pendientes"></div>
+      </div>
+    </div>
+
     <div class="tabbar">
       <button class="tab-btn activo" onclick="mostrarPanelAdmin('inicio', this)">🏠 Inicio</button>
       <button class="tab-btn" onclick="mostrarPanelAdmin('pagos', this)">💰 Pagos</button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('aprobaciones', this)">✅ Aprobar</button>
       <button class="tab-btn" onclick="cerrarSesion()">🚪 Salir</button>
     </div>
   </div>

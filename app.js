@@ -57,6 +57,53 @@ function cerrarSesion() {
   location.reload();
 }
 
+/* ---------------- REGISTRO ---------------- */
+function mostrarRegistro() {
+  document.getElementById('vista-login').classList.add('oculto');
+  document.getElementById('vista-registro').classList.remove('oculto');
+}
+
+function mostrarLogin() {
+  document.getElementById('vista-registro').classList.add('oculto');
+  document.getElementById('vista-login').classList.remove('oculto');
+}
+
+function registrarUsuarioUI() {
+  const datos = {
+    nombres: document.getElementById('reg-nombres').value.trim(),
+    apellidos: document.getElementById('reg-apellidos').value.trim(),
+    tipoDocumento: document.getElementById('reg-tipo-doc').value,
+    numeroDocumento: document.getElementById('reg-num-doc').value.trim(),
+    telefono: document.getElementById('reg-telefono').value.trim(),
+    email: document.getElementById('reg-email').value.trim(),
+    numeroTorre: document.getElementById('reg-torre').value.trim(),
+    numeroApto: document.getElementById('reg-apto').value.trim(),
+    tipoRol: document.getElementById('reg-tipo-rol').value,
+    autorizacionDatos: document.getElementById('reg-autorizacion').checked
+  };
+
+  if (!datos.nombres || !datos.apellidos || !datos.numeroDocumento || !datos.email || !datos.numeroTorre || !datos.numeroApto) {
+    document.getElementById('reg-resultado').innerHTML = '<span style="color:var(--rojo)">Completa todos los campos.</span>';
+    return;
+  }
+  if (!datos.autorizacionDatos) {
+    document.getElementById('reg-resultado').innerHTML = '<span style="color:var(--rojo)">Debes autorizar el tratamiento de datos.</span>';
+    return;
+  }
+
+  mostrarCargando(true);
+  llamarAPI('registrarUsuario', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('reg-resultado');
+    if (!r.ok) {
+      el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>';
+      return;
+    }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ ' + r.mensaje + '</span>';
+    setTimeout(mostrarLogin, 2500);
+  });
+}
+
 /* ---------------- RESIDENTE ---------------- */
 function iniciarResidente() {
   document.getElementById('vista-residente').classList.remove('oculto');
@@ -289,12 +336,13 @@ function iniciarAdmin() {
 }
 
 function mostrarPanelAdmin(panel, btn) {
-  ['inicio', 'pagos'].forEach(function (p) {
+  ['inicio', 'pagos', 'aprobaciones'].forEach(function (p) {
     document.getElementById('admin-panel-' + p).classList.toggle('oculto', p !== panel);
   });
   document.querySelectorAll('#vista-admin .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
   btn.classList.add('activo');
   if (panel === 'pagos') cargarPagosPendientesUI();
+  if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
 }
 
 function cargarDashboardAdmin() {
@@ -330,5 +378,41 @@ function validarPagoUI(idPago, estado) {
       mostrarCargando(false);
       cargarPagosPendientesUI();
       cargarDashboardAdmin();
+    });
+}
+
+function cargarUsuariosPendientesUI() {
+  llamarAPI('getUsuariosPendientes', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-usuarios-pendientes');
+      const usuarios = r.usuarios || [];
+      cont.innerHTML = usuarios.length ? '' : '<p>No hay solicitudes pendientes 🎉</p>';
+      usuarios.forEach(function (u) {
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + u.Nombre + '</b> — ' + u.Tipo_Rol + ' del apto ' + u.ID_Apto +
+          '<br><span style="color:var(--texto-suave); font-size:13px;">' + u.Email + ' · Doc: ' + u.Documento + '</span>' +
+          '<br><button class="verde" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="aprobarUsuarioUI(\'' + u.ID_Usuario + '\')">✅ Aprobar</button> ' +
+          '<button class="rojo" style="width:auto; padding:8px 14px;" onclick="rechazarUsuarioUI(\'' + u.ID_Usuario + '\')">❌ Rechazar</button>' +
+          '</div>';
+      });
+    });
+}
+
+function aprobarUsuarioUI(idUsuarioObjetivo) {
+  mostrarCargando(true);
+  llamarAPI('aprobarUsuario', { idUsuario: SESION.idUsuario, idUsuarioObjetivo: idUsuarioObjetivo })
+    .then(function () {
+      mostrarCargando(false);
+      cargarUsuariosPendientesUI();
+    });
+}
+
+function rechazarUsuarioUI(idUsuarioObjetivo) {
+  if (!confirm('¿Rechazar y eliminar esta solicitud?')) return;
+  mostrarCargando(true);
+  llamarAPI('rechazarUsuario', { idUsuario: SESION.idUsuario, idUsuarioObjetivo: idUsuarioObjetivo })
+    .then(function () {
+      mostrarCargando(false);
+      cargarUsuariosPendientesUI();
     });
 }
