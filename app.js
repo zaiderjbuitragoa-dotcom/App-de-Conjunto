@@ -6,7 +6,7 @@
  * de Apps Script (termina en /exec). La obtienes al hacer
  * Implementar → Nueva implementación → Aplicación web.
  */
-const API_URL = 'PEGA_AQUI_TU_URL_DE_APPS_SCRIPT/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzpm8ZPoPPxwvPdCcvlPKyxxz7UICcGBPK8uSCP5eIq3hqUDzd2E4afhTQTluOKYOTqPA/exec';
 
 let SESION = null;
 
