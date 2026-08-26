@@ -668,3 +668,4 @@ function toggleGuardiaUI(idUsuarioObjetivo) {
       cargarGuardias();
     });
 }
+
