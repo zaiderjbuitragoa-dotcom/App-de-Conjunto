@@ -9,6 +9,9 @@
   --texto-suave: #64748b;
   --blanco: #ffffff;
   --borde: #e2e8f0;
+  --azul: #2563eb;
+  --azul-oscuro: #1e3a8a;
+  --azul-medio: #312e81;
 }
 * { box-sizing: border-box; }
 body {
@@ -84,21 +87,88 @@ button.rojo { background: var(--rojo); }
   background: var(--blanco);
   display: flex;
   justify-content: space-around;
-  padding: 10px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--borde);
   box-shadow: 0 -4px 16px rgba(0,0,0,0.04);
 }
 .tab-btn {
   background: none;
   color: var(--texto-suave);
-  font-size: 12px;
   width: auto;
-  padding: 4px 10px;
+  flex: 1 1 0;
+  min-width: 60px;
+  max-width: 90px;
   margin: 0;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px;
 }
+.tab-btn .icono { font-size: 24px; line-height: 1; }
+.tab-btn .etiqueta { font-size: 11px; letter-spacing: 0.1px; }
 .tab-btn.activo { color: var(--verde-oscuro); background: var(--verde-claro); }
+
+/* ==================== TOPBAR (encabezado con botón de salir) ==================== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 10px;
+}
+.topbar h2 { margin: 0; font-size: 21px; }
+.btn-icono {
+  width: auto;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--verde-claro);
+  color: var(--verde-oscuro);
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: none;
+  margin: 0;
+}
+.btn-icono:hover { background: var(--verde-suave); }
+
+/* ==================== BANNER DE AVISOS/ANUNCIOS ==================== */
+.anuncios-banner {
+  background: linear-gradient(135deg, var(--azul-medio), var(--azul-oscuro) 55%, var(--azul));
+  border-radius: 20px;
+  padding: 18px;
+  color: white;
+  margin-bottom: 16px;
+  box-shadow: 0 12px 28px rgba(30, 27, 75, 0.28);
+}
+.anuncios-banner h3 {
+  color: white;
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0.85;
+  font-weight: 700;
+}
+.anuncio-item {
+  background: rgba(255,255,255,0.12);
+  border-left: 4px solid rgba(255,255,255,0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.anuncio-item:last-child { margin-bottom: 0; }
+.anuncio-item .titulo { font-weight: 700; font-size: 14.5px; margin-bottom: 3px; }
+.anuncio-item .fecha { font-size: 11px; opacity: 0.7; margin-top: 6px; }
+.anuncio-item.importante { border-left-color: var(--amarillo); }
+.anuncio-item.emergencia { border-left-color: #f87171; }
 
 .item-lista {
   border-bottom: 1px solid var(--borde);
