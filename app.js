@@ -104,22 +104,49 @@ function registrarUsuarioUI() {
   });
 }
 
+/* ---------------- AVISOS / ANUNCIOS (compartido entre roles) ---------------- */
+function cargarAnuncios(contenedorId) {
+  const cont = document.getElementById(contenedorId);
+  if (!cont) return;
+  llamarAPI('getAnuncios', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const anuncios = (r.anuncios || []).slice(0, 5);
+      if (!anuncios.length) {
+        cont.innerHTML = '<h3>📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px; margin:0;">No hay avisos por ahora.</p>';
+        return;
+      }
+      let html = '<h3>📢 Avisos del conjunto</h3>';
+      anuncios.forEach(function (a) {
+        const clase = a.Tipo === 'Emergencia' ? 'emergencia' : (a.Tipo === 'Importante' ? 'importante' : '');
+        const fecha = a.Fecha_Publicacion ? new Date(a.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
+        html += '<div class="anuncio-item ' + clase + '">' +
+          '<div class="titulo">' + a.Titulo + '</div>' +
+          '<div>' + a.Contenido + '</div>' +
+          '<div class="fecha">' + fecha + '</div>' +
+          '</div>';
+      });
+      cont.innerHTML = html;
+    });
+}
+
 /* ---------------- RESIDENTE ---------------- */
 function iniciarResidente() {
   document.getElementById('vista-residente').classList.remove('oculto');
   document.getElementById('res-nombre').innerText = SESION.nombre;
+  cargarAnuncios('res-anuncios');
   cargarEstadoCuenta();
   cargarMisVisitas();
 }
 
 function mostrarPanelResidente(panel, btn) {
-  ['inicio', 'visitas', 'pagos', 'vehiculos'].forEach(function (p) {
+  ['inicio', 'visitas', 'pagos', 'vehiculos', 'zonas'].forEach(function (p) {
     document.getElementById('res-panel-' + p).classList.toggle('oculto', p !== panel);
   });
   document.querySelectorAll('#vista-residente .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
   btn.classList.add('activo');
   if (panel === 'pagos') cargarHistorialPagos();
   if (panel === 'vehiculos') cargarMisVehiculos();
+  if (panel === 'zonas') { cargarZonasComunes(); cargarMisReservas(); }
 }
 
 function cargarEstadoCuenta() {
@@ -261,9 +288,87 @@ function eliminarVehiculoUI(idVehiculo) {
     });
 }
 
+/* ---------------- ZONAS COMUNES (residente) ---------------- */
+function cargarZonasComunes() {
+  llamarAPI('getZonasComunes', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const zonas = r.zonas || [];
+      const cont = document.getElementById('lista-zonas-comunes');
+      cont.innerHTML = zonas.length ? '' : '<p>Aún no hay zonas comunes configuradas.</p>';
+
+      const select = document.getElementById('reserva-zona');
+      select.innerHTML = '';
+
+      zonas.forEach(function (z) {
+        const disponible = String(z.Estado).trim().toLowerCase() === 'disponible';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + (z.Icono || '📍') + ' ' + z.Nombre + '</b>' +
+          (z.Descripcion ? '<br><span style="color:var(--texto-suave); font-size:13px;">' + z.Descripcion + '</span>' : '') +
+          (z.Horario ? '<br><span style="color:var(--texto-suave); font-size:13px;">🕒 ' + z.Horario + '</span>' : '') +
+          ' <span class="badge ' + (disponible ? 'autorizado' : 'no-autorizado') + '">' + z.Estado + '</span>' +
+          '</div>';
+        if (disponible) {
+          const opt = document.createElement('option');
+          opt.value = z.ID_Zona;
+          opt.textContent = (z.Icono || '📍') + ' ' + z.Nombre;
+          select.appendChild(opt);
+        }
+      });
+
+      document.getElementById('form-reservar-zona').classList.toggle('oculto', !select.options.length);
+    });
+}
+
+function reservarZonaUI() {
+  const idZona = document.getElementById('reserva-zona').value;
+  const fecha = document.getElementById('reserva-fecha').value;
+  const horaInicio = document.getElementById('reserva-hora-inicio').value;
+  const horaFin = document.getElementById('reserva-hora-fin').value;
+  if (!idZona || !fecha || !horaInicio || !horaFin) { alert('Completa todos los campos'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('reservarZonaComun', {
+    idUsuario: SESION.idUsuario, idApto: SESION.idApto,
+    idZona: idZona, fecha: fecha, horaInicio: horaInicio, horaFin: horaFin
+  }).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('reserva-resultado');
+    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Reserva confirmada.</span>';
+    cargarMisReservas();
+  });
+}
+
+function cargarMisReservas() {
+  llamarAPI('getMisReservas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const cont = document.getElementById('lista-mis-reservas');
+      const reservas = r.reservas || [];
+      cont.innerHTML = reservas.length ? '' : '<p>No tienes reservas.</p>';
+      reservas.forEach(function (res) {
+        const clase = res.Estado === 'Confirmada' ? 'validado' : (res.Estado === 'Cancelada' ? 'rechazado' : 'pendiente');
+        cont.innerHTML += '<div class="item-lista"><b>' + res.Nombre_Zona + '</b> — ' + res.Fecha + ' (' + res.Hora_Inicio + ' - ' + res.Hora_Fin + ')' +
+          ' <span class="badge ' + clase + '">' + res.Estado + '</span>' +
+          (res.Estado === 'Confirmada' ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="cancelarReservaUI(\'' + res.ID_Reserva + '\')">Cancelar</button>' : '') +
+          '</div>';
+      });
+    });
+}
+
+function cancelarReservaUI(idReserva) {
+  if (!confirm('¿Cancelar esta reserva?')) return;
+  mostrarCargando(true);
+  llamarAPI('cancelarReserva', { idUsuario: SESION.idUsuario, idApto: SESION.idApto, idReserva: idReserva })
+    .then(function () {
+      mostrarCargando(false);
+      cargarMisReservas();
+    });
+}
+
 /* ---------------- VIGILANCIA ---------------- */
 function iniciarVigilancia() {
   document.getElementById('vista-vigilancia').classList.remove('oculto');
+  cargarAnuncios('vig-anuncios');
   cargarVisitasHoy();
 }
 
@@ -336,13 +441,16 @@ function iniciarAdmin() {
 }
 
 function mostrarPanelAdmin(panel, btn) {
-  ['inicio', 'pagos', 'aprobaciones'].forEach(function (p) {
+  ['inicio', 'pagos', 'aprobaciones', 'anuncios', 'zonas', 'guardas'].forEach(function (p) {
     document.getElementById('admin-panel-' + p).classList.toggle('oculto', p !== panel);
   });
   document.querySelectorAll('#vista-admin .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
   btn.classList.add('activo');
   if (panel === 'pagos') cargarPagosPendientesUI();
   if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
+  if (panel === 'anuncios') cargarAnunciosAdmin();
+  if (panel === 'zonas') cargarZonasAdmin();
+  if (panel === 'guardas') cargarGuardias();
 }
 
 function cargarDashboardAdmin() {
@@ -414,5 +522,149 @@ function rechazarUsuarioUI(idUsuarioObjetivo) {
     .then(function () {
       mostrarCargando(false);
       cargarUsuariosPendientesUI();
+    });
+}
+
+/* ---------------- ADMIN · ANUNCIOS ---------------- */
+function publicarAnuncioUI() {
+  const titulo = document.getElementById('an-titulo').value.trim();
+  const contenido = document.getElementById('an-contenido').value.trim();
+  const tipo = document.getElementById('an-tipo').value;
+  if (!titulo || !contenido) { alert('Completa el título y el mensaje'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('crearAnuncio', { idUsuario: SESION.idUsuario, titulo: titulo, contenido: contenido, tipo: tipo })
+    .then(function (r) {
+      mostrarCargando(false);
+      const el = document.getElementById('an-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Aviso publicado.</span>';
+      document.getElementById('an-titulo').value = '';
+      document.getElementById('an-contenido').value = '';
+      cargarAnunciosAdmin();
+    });
+}
+
+function cargarAnunciosAdmin() {
+  llamarAPI('getTodosAnuncios', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-anuncios-admin');
+      const anuncios = r.anuncios || [];
+      cont.innerHTML = anuncios.length ? '' : '<p>No hay avisos publicados todavía.</p>';
+      anuncios.forEach(function (a) {
+        const activo = String(a.Activo).trim().toLowerCase() === 'si';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + a.Titulo + '</b> <span class="badge ' + (activo ? 'autorizado' : 'no-autorizado') + '">' + (activo ? 'Publicado' : 'Retirado') + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Contenido + '</span>' +
+          (activo ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="eliminarAnuncioUI(\'' + a.ID_Anuncio + '\')">Retirar</button>' : '') +
+          '</div>';
+      });
+    });
+}
+
+function eliminarAnuncioUI(idAnuncio) {
+  if (!confirm('¿Retirar este aviso? Dejará de verse para residentes y vigilancia.')) return;
+  mostrarCargando(true);
+  llamarAPI('eliminarAnuncio', { idUsuario: SESION.idUsuario, idAnuncio: idAnuncio })
+    .then(function () {
+      mostrarCargando(false);
+      cargarAnunciosAdmin();
+    });
+}
+
+/* ---------------- ADMIN · ZONAS COMUNES ---------------- */
+function cargarZonasAdmin() {
+  llamarAPI('getZonasComunes', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-zonas-admin');
+      const zonas = r.zonas || [];
+      cont.innerHTML = zonas.length ? '' : '<p>No hay zonas comunes registradas.</p>';
+      zonas.forEach(function (z) {
+        const disponible = String(z.Estado).trim().toLowerCase() === 'disponible';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + (z.Icono || '📍') + ' ' + z.Nombre + '</b> <span class="badge ' + (disponible ? 'autorizado' : 'no-autorizado') + '">' + z.Estado + '</span>' +
+          (z.Descripcion ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + z.Descripcion + '</span>' : '') +
+          (z.Horario ? '<br><span style="font-size:13px; color:var(--texto-suave);">🕒 ' + z.Horario + '</span>' : '') +
+          '</div>';
+      });
+    });
+}
+
+function crearZonaUI() {
+  const datos = {
+    idUsuario: SESION.idUsuario,
+    nombre: document.getElementById('zc-nombre').value.trim(),
+    descripcion: document.getElementById('zc-descripcion').value.trim(),
+    capacidad: document.getElementById('zc-capacidad').value.trim(),
+    horario: document.getElementById('zc-horario').value.trim(),
+    icono: document.getElementById('zc-icono').value.trim(),
+    requiereReserva: true
+  };
+  if (!datos.nombre) { alert('Ingresa el nombre de la zona'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('crearZonaComun', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('zc-resultado');
+    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Zona creada.</span>';
+    ['zc-nombre', 'zc-descripcion', 'zc-capacidad', 'zc-horario', 'zc-icono'].forEach(function (id) {
+      document.getElementById(id).value = '';
+    });
+    cargarZonasAdmin();
+  });
+}
+
+/* ---------------- ADMIN · GUARDAS DE SEGURIDAD ---------------- */
+function cargarGuardias() {
+  llamarAPI('getGuardias', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-guardias');
+      const guardias = r.guardias || [];
+      cont.innerHTML = guardias.length ? '' : '<p>No hay guardias registrados aún.</p>';
+      guardias.forEach(function (g) {
+        const activo = String(g.Activo).trim().toLowerCase() === 'si';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + g.Nombre + '</b> <span class="badge ' + (activo ? 'autorizado' : 'no-autorizado') + '">' + (activo ? 'Activo' : 'Inactivo') + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + g.Email + '</span>' +
+          '<br><button class="secundario" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="toggleGuardiaUI(\'' + g.ID_Usuario + '\')">' + (activo ? 'Desactivar' : 'Activar') + '</button>' +
+          '</div>';
+      });
+    });
+}
+
+function crearGuardiaUI() {
+  const datos = {
+    idUsuario: SESION.idUsuario,
+    nombres: document.getElementById('gu-nombres').value.trim(),
+    apellidos: document.getElementById('gu-apellidos').value.trim(),
+    email: document.getElementById('gu-email').value.trim(),
+    telefono: document.getElementById('gu-telefono').value.trim(),
+    numeroDocumento: document.getElementById('gu-documento').value.trim()
+  };
+  if (!datos.nombres || !datos.apellidos || !datos.email) { alert('Completa nombre, apellido y correo'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('crearUsuarioVigilancia', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('gu-resultado');
+    el.innerHTML = r.ok
+      ? '<span style="color:var(--verde-oscuro)">✅ ' + r.mensaje + '</span>'
+      : '<span style="color:var(--rojo)">❌ ' + r.mensaje + '</span>';
+    if (r.ok) {
+      ['gu-nombres', 'gu-apellidos', 'gu-email', 'gu-telefono', 'gu-documento'].forEach(function (id) {
+        document.getElementById(id).value = '';
+      });
+      cargarGuardias();
+    }
+  });
+}
+
+function toggleGuardiaUI(idUsuarioObjetivo) {
+  mostrarCargando(true);
+  llamarAPI('desactivarGuardia', { idUsuario: SESION.idUsuario, idUsuarioObjetivo: idUsuarioObjetivo })
+    .then(function () {
+      mostrarCargando(false);
+      cargarGuardias();
     });
 }
