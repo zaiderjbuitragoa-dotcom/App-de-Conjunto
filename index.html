@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi Conjunto Residencial</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="cargando" class="oculto">Cargando...</div>
+
+  <!-- ==================== LOGIN ==================== -->
+  <div id="vista-login" class="contenedor">
+    <div class="login-box">
+      <div class="login-logo">🏢</div>
+      <div class="login-titulo">Mi Conjunto</div>
+      <div class="login-subtitulo">Acceso residentes · administración · vigilancia</div>
+      <div class="login-card">
+        <input type="email" id="login-email" placeholder="Tu correo registrado">
+        <button onclick="hacerLogin()">Ingresar →</button>
+        <p id="login-error" style="color:var(--rojo); text-align:center; font-size:14px; margin:8px 0 0 0;"></p>
+      </div>
+      <div class="login-footer">Plataforma privada del conjunto residencial</div>
+    </div>
+  </div>
+
+  <!-- ==================== RESIDENTE ==================== -->
+  <div id="vista-residente" class="contenedor oculto">
+    <h2>Hola, <span id="res-nombre"></span></h2>
+
+    <div id="res-panel-inicio">
+      <div id="res-semaforo" class="semaforo">Cargando estado de cuenta...</div>
+      <div class="card">
+        <h3>💰 Estado de cuenta</h3>
+        <p>Saldo actual: $<span id="res-saldo">0</span></p>
+      </div>
+    </div>
+
+    <div id="res-panel-visitas" class="oculto">
+      <div class="card">
+        <h3>👥 Registrar visita</h3>
+        <input type="text" id="visita-nombre" placeholder="Nombre del visitante">
+        <input type="text" id="visita-doc" placeholder="Documento del visitante">
+        <input type="date" id="visita-fecha">
+        <input type="time" id="visita-hora">
+        <button onclick="registrarVisitaUI()">Registrar visita</button>
+        <p id="visita-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Mis visitas</h3>
+        <div id="lista-mis-visitas"></div>
+      </div>
+    </div>
+
+    <div id="res-panel-pagos" class="oculto">
+      <div class="card">
+        <h3>📤 Subir comprobante</h3>
+        <input type="number" id="pago-valor" placeholder="Valor pagado">
+        <input type="text" id="pago-periodo" placeholder="Periodo (ej. 2026-08)">
+        <input type="file" id="pago-archivo" accept="image/*,.pdf">
+        <button onclick="subirComprobanteUI()">Subir</button>
+        <p id="pago-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Historial de pagos</h3>
+        <div id="lista-pagos"></div>
+      </div>
+    </div>
+
+    <div id="res-panel-vehiculos" class="oculto">
+      <div class="card">
+        <h3>🚗 Mis vehículos</h3>
+        <p style="color:var(--texto-suave); font-size:14px; margin-top:-8px;">Máximo 2 vehículos por apartamento (cualquier combinación de carro/moto).</p>
+        <div id="lista-vehiculos"></div>
+      </div>
+      <div class="card" id="form-agregar-vehiculo">
+        <h3>Agregar vehículo</h3>
+        <input type="text" id="veh-placa" placeholder="Placa" style="text-transform:uppercase;">
+        <select id="veh-tipo">
+          <option value="Carro">Carro</option>
+          <option value="Moto">Moto</option>
+          <option value="Bicicleta">Bicicleta</option>
+        </select>
+        <input type="text" id="veh-marca" placeholder="Marca (opcional)">
+        <input type="text" id="veh-color" placeholder="Color (opcional)">
+        <button onclick="registrarVehiculoUI()">Agregar vehículo</button>
+        <p id="veh-resultado"></p>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <button class="tab-btn activo" onclick="mostrarPanelResidente('inicio', this)">🏠 Inicio</button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('visitas', this)">👥 Visitas</button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('pagos', this)">💰 Pagos</button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('vehiculos', this)">🚗 Vehículos</button>
+      <button class="tab-btn" onclick="cerrarSesion()">🚪 Salir</button>
+    </div>
+  </div>
+
+  <!-- ==================== VIGILANCIA ==================== -->
+  <div id="vista-vigilancia" class="contenedor oculto">
+    <h2>Portería</h2>
+
+    <div id="vig-panel-visitas">
+      <div class="card">
+        <h3>🚪 Visitantes esperados hoy</h3>
+        <div id="lista-visitas-hoy"></div>
+      </div>
+      <div class="card">
+        <h3>Buscar por código</h3>
+        <input type="text" id="buscar-codigo" placeholder="Código de visita">
+        <button onclick="buscarYMostrar()">Buscar</button>
+        <div id="resultado-busqueda"></div>
+      </div>
+    </div>
+
+    <div id="vig-panel-novedades" class="oculto">
+      <div class="card">
+        <h3>⚠️ Registrar novedad</h3>
+        <input type="text" id="nov-tipo" placeholder="Tipo (ej. Seguridad, Convivencia)">
+        <textarea id="nov-desc" placeholder="Descripción" rows="3"></textarea>
+        <select id="nov-prioridad">
+          <option value="Baja">Prioridad baja</option>
+          <option value="Media">Prioridad media</option>
+          <option value="Alta">Prioridad alta</option>
+        </select>
+        <button onclick="registrarNovedadUI()">Registrar</button>
+        <p id="nov-resultado"></p>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <button class="tab-btn activo" onclick="mostrarPanelVigilancia('visitas', this)">🚪 Visitantes</button>
+      <button class="tab-btn" onclick="mostrarPanelVigilancia('novedades', this)">⚠️ Novedades</button>
+      <button class="tab-btn" onclick="cerrarSesion()">🚪 Salir</button>
+    </div>
+  </div>
+
+  <!-- ==================== ADMINISTRADOR ==================== -->
+  <div id="vista-admin" class="contenedor oculto">
+    <h2>Administración</h2>
+
+    <div id="admin-panel-inicio">
+      <div class="card">
+        <h3>📊 Resumen</h3>
+        <p>Pagos pendientes: <b id="admin-count-pagos">0</b></p>
+        <p>Novedades abiertas: <b id="admin-count-novedades">0</b></p>
+        <p>PQRS sin cerrar: <b id="admin-count-pqrs">0</b></p>
+      </div>
+    </div>
+
+    <div id="admin-panel-pagos" class="oculto">
+      <div class="card">
+        <h3>💰 Pagos pendientes de validar</h3>
+        <div id="lista-pagos-pendientes"></div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <button class="tab-btn activo" onclick="mostrarPanelAdmin('inicio', this)">🏠 Inicio</button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('pagos', this)">💰 Pagos</button>
+      <button class="tab-btn" onclick="cerrarSesion()">🚪 Salir</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
