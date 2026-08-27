@@ -9,9 +9,6 @@
   --texto-suave: #64748b;
   --blanco: #ffffff;
   --borde: #e2e8f0;
-  --azul: #2563eb;
-  --azul-oscuro: #1e3a8a;
-  --azul-medio: #312e81;
 }
 * { box-sizing: border-box; }
 body {
@@ -87,129 +84,98 @@ button.rojo { background: var(--rojo); }
   background: var(--blanco);
   display: flex;
   justify-content: space-around;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  align-items: stretch;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)) 4px;
   border-top: 1px solid var(--borde);
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.04);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
+  z-index: 50;
 }
 .tab-btn {
   background: none;
   color: var(--texto-suave);
-  width: auto;
-  flex: 1 1 0;
-  min-width: 60px;
-  max-width: 90px;
-  margin: 0;
+  font-size: 11px;
+  width: 100%;
+  padding: 8px 2px;
+  margin: 0 2px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 3px;
-  padding: 8px 4px;
+  line-height: 1.1;
+  min-height: 56px;
 }
-.tab-btn .icono { font-size: 24px; line-height: 1; }
-.tab-btn .etiqueta { font-size: 11px; letter-spacing: 0.1px; }
+.tab-btn .tab-icono { font-size: 24px; line-height: 1; }
 .tab-btn.activo { color: var(--verde-oscuro); background: var(--verde-claro); }
 
-/* ==================== TOPBAR (encabezado con botón de salir) ==================== */
-.topbar {
+.header-superior {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
-  gap: 10px;
+  margin-bottom: 4px;
 }
-.topbar h2 { margin: 0; font-size: 21px; }
-.btn-icono {
+.btn-salir {
+  background: none;
   width: auto;
-  flex-shrink: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--verde-claro);
-  color: var(--verde-oscuro);
-  font-size: 18px;
-  line-height: 1;
-  box-shadow: none;
+  padding: 8px 12px;
   margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto-suave);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
 }
-.btn-icono:hover { background: var(--verde-suave); }
 
-/* ==================== BANNER DE AVISOS/ANUNCIOS ==================== */
-.anuncios-banner {
-  background: linear-gradient(135deg, var(--azul-medio), var(--azul-oscuro) 55%, var(--azul));
-  border-radius: 20px;
-  padding: 18px;
+/* ==================== Tarjeta de comunicados (centro de anuncios) ==================== */
+.centro-anuncios {
+  background: linear-gradient(135deg, #1e3a8a, #16a34a 130%);
+  border-radius: 18px;
+  padding: 20px;
   color: white;
   margin-bottom: 16px;
-  box-shadow: 0 12px 28px rgba(30, 27, 75, 0.28);
+  box-shadow: 0 10px 28px rgba(22, 58, 138, 0.25);
 }
-.anuncios-banner h3 {
+.centro-anuncios h3 {
   color: white;
   margin: 0 0 12px 0;
-  font-size: 13px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  opacity: 0.85;
-  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .anuncio-item {
   background: rgba(255,255,255,0.12);
-  border-left: 4px solid rgba(255,255,255,0.35);
   border-radius: 12px;
   padding: 12px 14px;
-  margin-bottom: 10px;
-  font-size: 13.5px;
-  line-height: 1.4;
+  margin-bottom: 8px;
 }
 .anuncio-item:last-child { margin-bottom: 0; }
-.anuncio-item .titulo { font-weight: 700; font-size: 14.5px; margin-bottom: 3px; }
-.anuncio-item .fecha { font-size: 11px; opacity: 0.7; margin-top: 6px; }
-.anuncio-item.importante { border-left-color: var(--amarillo); }
-.anuncio-item.emergencia { border-left-color: #f87171; }
+.anuncio-item .anuncio-titulo { font-weight: 700; font-size: 14px; margin-bottom: 3px; }
+.anuncio-item .anuncio-texto { font-size: 13px; opacity: 0.92; line-height: 1.4; }
+.anuncio-item .anuncio-fecha { font-size: 11px; opacity: 0.7; margin-top: 6px; }
+.centro-anuncios .sin-anuncios { font-size: 13px; opacity: 0.85; }
 
-/* ==================== BOTÓN SOS ==================== */
+/* ==================== Botón de emergencia SOS ==================== */
 .btn-sos {
-  width: 100%;
+  background: linear-gradient(135deg, #dc2626, #991b1b);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.35);
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+.btn-sos:hover { background: linear-gradient(135deg, #b91c1c, #7f1d1d); }
+
+.banner-sos {
   background: linear-gradient(135deg, #dc2626, #991b1b);
   color: white;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.3px;
-  padding: 18px;
-  border-radius: 16px;
-  margin: 0 0 16px 0;
-  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.35);
-  animation: pulso-sos 2.2s infinite;
-}
-@keyframes pulso-sos {
-  0%, 100% { box-shadow: 0 10px 24px rgba(220, 38, 38, 0.35); }
-  50% { box-shadow: 0 10px 30px rgba(220, 38, 38, 0.6); }
-}
-.alerta-sos-item {
-  background: #fef2f2;
-  border-left: 4px solid var(--rojo);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-}
-.anuncio-item img {
-  width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-  border-radius: 10px;
-  margin-top: 8px;
-  display: block;
-}
-.item-lista img.miniatura-aviso {
-  width: 100%;
-  max-height: 180px;
-  object-fit: cover;
-  border-radius: 10px;
-  margin-top: 8px;
-  display: block;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .item-lista {
