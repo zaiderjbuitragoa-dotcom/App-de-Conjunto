@@ -14,6 +14,42 @@ function mostrarCargando(v) {
   document.getElementById('cargando').classList.toggle('oculto', !v);
 }
 
+// Helper para formatear horas limpiamente evitando '1899-12-30T19:56:16.000Z'
+function formatearHora(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  if (s.includes('1899-12-30') || s.includes('T')) {
+    const matchT = s.match(/T(\d{2}):(\d{2})/);
+    if (matchT) {
+      let h = parseInt(matchT[1], 10);
+      let m = matchT[2];
+      let ampm = h >= 12 ? 'PM' : 'AM';
+      let h12 = h % 12 || 12;
+      return h12 + ':' + m + ' ' + ampm;
+    }
+  }
+  const match24 = s.match(/^(\d{1,2}):(\d{2})(:\d{2})?/);
+  if (match24) {
+    let h = parseInt(match24[1], 10);
+    let m = match24[2];
+    let ampm = h >= 12 ? 'PM' : 'AM';
+    let h12 = h % 12 || 12;
+    return h12 + ':' + m + ' ' + ampm;
+  }
+  return s;
+}
+
+function formatearFecha(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  if (s.includes('1899-12-30')) return '';
+  if (s.includes('T')) {
+    const p = s.split('T')[0].split('-');
+    if (p.length === 3) return p[2] + '/' + p[1] + '/' + p[0];
+  }
+  return s;
+}
+
 // Helper central para llamar al backend. Usamos Content-Type
 // text/plain a propósito: evita que el navegador dispare una
 // petición OPTIONS de preflight (Apps Script no la responde bien),
@@ -52,9 +88,35 @@ function hacerLogin() {
     });
 }
 
+let intervalBadges = null;
+
 function cerrarSesion() {
   SESION = null;
-  location.reload();
+  if (intervalBadges) {
+    clearInterval(intervalBadges);
+    intervalBadges = null;
+  }
+  detenerCamaraPlaca();
+
+  // Ocultar todos los paneles modales que estén abiertos
+  const modales = document.querySelectorAll('.panel-modal');
+  modales.forEach(function (m) { m.classList.add('oculto'); });
+
+  // Ocultar todas las pantallas principales
+  ['vista-residente', 'vista-vigilancia', 'vista-admin', 'vista-registro'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('oculto');
+  });
+
+  // Mostrar la pantalla de login limpia
+  const vistaLogin = document.getElementById('vista-login');
+  if (vistaLogin) vistaLogin.classList.remove('oculto');
+
+  const emailInput = document.getElementById('login-email');
+  if (emailInput) emailInput.value = '';
+
+  const errOutput = document.getElementById('login-error');
+  if (errOutput) errOutput.innerText = '';
 }
 
 /* ---------------- REGISTRO ---------------- */
@@ -213,6 +275,35 @@ function iniciarResidente() {
   cargarComunicados('res-anuncios');
   cargarEstadoCuenta();
   cargarMisVisitas();
+  cargarBadgesResidente();
+  if (intervalBadges) clearInterval(intervalBadges);
+  intervalBadges = setInterval(cargarBadgesResidente, 15000);
+}
+
+function cargarBadgesResidente() {
+  llamarAPI('getMisVisitas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const pend = (r.visitas || []).filter(function (v) { return v.Estado === 'Pendiente'; });
+      ponerBadge('badge-res-visitas', pend.length);
+    });
+
+  llamarAPI('getMisReservas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const pend = (r.reservas || []).filter(function (res) { return res.Estado === 'Pendiente'; });
+      ponerBadge('badge-res-zonas', pend.length);
+    });
+
+  llamarAPI('getMisMultas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const pend = (r.multas || []).filter(function (m) { return m.Estado === 'Pendiente'; });
+      ponerBadge('badge-res-multas', pend.length);
+    });
+
+  llamarAPI('getMisPQRS', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const abiertas = (r.pqrs || []).filter(function (p) { return p.Estado !== 'Cerrado'; });
+      ponerBadge('badge-res-pqrs', abiertas.length);
+    });
 }
 
 function mostrarPanelResidente(panel) {
@@ -230,6 +321,7 @@ function cerrarModuloResidente() {
   ['visitas', 'pagos', 'vehiculos', 'zonas', 'piscina', 'multas', 'pqrs'].forEach(function (p) {
     document.getElementById('res-panel-' + p).classList.add('oculto');
   });
+  cargarBadgesResidente();
 }
 
 function dispararSOSUI() {
@@ -283,7 +375,9 @@ function cargarMisVisitas() {
       cont.innerHTML = visitas.length ? '' : '<p>No tienes visitas registradas.</p>';
       visitas.forEach(function (v) {
         const badge = v.Estado === 'Ingresó' ? 'ingreso' : 'pendiente';
-        cont.innerHTML += '<div class="item-lista"><b>' + v.Nombre_Visitante + '</b> — ' + v.Fecha_Programada +
+        const fechaFmt = formatearFecha(v.Fecha_Programada) || v.Fecha_Programada;
+        const horaFmt = formatearHora(v.Hora_Programada);
+        cont.innerHTML += '<div class="item-lista"><b>' + v.Nombre_Visitante + '</b> — ' + fechaFmt + (horaFmt ? ' (' + horaFmt + ')' : '') +
           ' <span class="badge ' + badge + '">' + v.Estado + '</span></div>';
       });
     });
@@ -587,8 +681,26 @@ function iniciarVigilancia() {
   document.getElementById('vista-vigilancia').classList.remove('oculto');
   cargarComunicados('vig-anuncios');
   cargarBannerSOS();
-  // ✅ FIX: cargar badge de novedades para vigilancia al iniciar
-  cargarBadgeNovedadesVigilancia();
+  cargarBadgesVigilancia();
+  if (intervalBadges) clearInterval(intervalBadges);
+  intervalBadges = setInterval(cargarBadgesVigilancia, 15000);
+}
+
+function cargarBadgesVigilancia() {
+  llamarAPI('getVisitasHoy', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-vig-visitas', (r.visitas || []).length); });
+
+  llamarAPI('getNovedadesAbiertas', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-vig-novedades', (r.novedades || []).length); });
+
+  llamarAPI('getAccesosPiscinaHoy', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-vig-piscina', (r.accesos || []).length); });
+
+  llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-vig-sos', (r.alertas || []).length); });
+
+  llamarAPI('getActasVigilancia', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-vig-actas', (r.actas || []).length); });
 }
 
 function mostrarPanelVigilancia(panel) {
@@ -605,6 +717,7 @@ function cerrarModuloVigilancia() {
   });
   detenerCamaraPlaca();
   cargarBannerSOS();
+  cargarBadgesVigilancia();
 }
 
 function cargarVisitasHoy() {
@@ -614,8 +727,9 @@ function cargarVisitasHoy() {
       const visitas = r.visitas || [];
       cont.innerHTML = visitas.length ? '' : '<p>No hay visitantes esperados hoy.</p>';
       visitas.forEach(function (v) {
-        cont.innerHTML += '<div class="item-lista"><b>' + v.Nombre_Visitante + '</b> (' + v.Documento_Visitante + ') — ' +
-          v.Hora_Programada + '<br>Apto: ' + v.ID_Apto +
+        const horaLimpia = formatearHora(v.Hora_Programada || v.Fecha_Programada);
+        cont.innerHTML += '<div class="item-lista"><b>' + v.Nombre_Visitante + '</b> (' + (v.Documento_Visitante || 'Sin doc') + ')' +
+          (horaLimpia ? ' — 🕒 <b>' + horaLimpia + '</b>' : '') + '<br><b>Apto:</b> ' + v.ID_Apto +
           '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoUI(\'' + v.ID_Visita + '\')">✅ Marcar ingreso</button></div>';
       });
     });
@@ -805,6 +919,8 @@ function cargarActasVigilancia() {
 function iniciarAdmin() {
   document.getElementById('vista-admin').classList.remove('oculto');
   cargarDashboardAdmin();
+  if (intervalBadges) clearInterval(intervalBadges);
+  intervalBadges = setInterval(cargarDashboardAdmin, 15000);
 }
 
 function mostrarPanelAdmin(panel) {
@@ -837,14 +953,30 @@ function cargarDashboardAdmin() {
       document.getElementById('admin-count-novedades').innerText = d.novedadesAbiertas;
       document.getElementById('admin-count-pqrs').innerText = d.pqrsAbiertos;
       ponerBadge('badge-admin-pagos', d.pagosPendientes);
-      // ✅ FIX: badge de novedades faltaba
       ponerBadge('badge-admin-novedades', d.novedadesAbiertas);
       ponerBadge('badge-admin-pqrs', d.pqrsAbiertos);
     });
+
   llamarAPI('getUsuariosPendientes', { idUsuario: SESION.idUsuario })
     .then(function (r) { ponerBadge('badge-admin-aprobaciones', (r.usuarios || []).length); });
+
   llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
     .then(function (r) { ponerBadge('badge-admin-sos', (r.alertas || []).length); });
+
+  llamarAPI('getReservasPendientes', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-admin-zonas', (r.reservas || []).length); });
+
+  llamarAPI('getMantenimiento', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const pendientes = (r.reportes || []).filter(function (m) { return m.Estado !== 'Resuelto'; });
+      ponerBadge('badge-admin-mantenimiento', pendientes.length);
+    });
+
+  llamarAPI('getTodosVehiculosAdmin', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const enMora = (r.vehiculos || []).filter(function (v) { return v.EstaEnMora || v.Autorizado === 'Bloqueado'; });
+      ponerBadge('badge-admin-vehiculos', enMora.length);
+    });
 }
 
 function ponerBadge(idBadge, cantidad) {
