@@ -75,6 +75,7 @@
 
     <div id="res-panel-inicio">
       <div class="anuncios-banner" id="res-anuncios"><h3>📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px;">Cargando avisos...</p></div>
+      <button class="btn-sos" onclick="dispararSOSUI()">🆘 Alerta de emergencia (SOS)</button>
       <div id="res-semaforo" class="semaforo">Cargando estado de cuenta...</div>
       <div class="card">
         <h3>💰 Estado de cuenta</h3>
@@ -154,6 +155,54 @@
         <h3>Mis reservas</h3>
         <div id="lista-mis-reservas"></div>
       </div>
+      <div class="card">
+        <h3>🔧 Reportar daño en zona común</h3>
+        <input type="text" id="mant-zona" placeholder="Zona/área (ej. Salón social, Parqueadero)">
+        <textarea id="mant-desc" placeholder="Describe el daño o problema" rows="3"></textarea>
+        <button onclick="reportarMantenimientoUI()">Reportar</button>
+        <p id="mant-resultado"></p>
+      </div>
+    </div>
+
+    <div id="res-panel-piscina" class="oculto">
+      <div class="card">
+        <h3>🏊 Solicitar acceso a piscina</h3>
+        <input type="date" id="piscina-fecha">
+        <input type="number" id="piscina-acompanantes" placeholder="N.° de acompañantes" min="0">
+        <input type="text" id="piscina-nombres" placeholder="Nombres de los acompañantes (opcional)">
+        <button onclick="registrarAccesoPiscinaUI()">Solicitar acceso</button>
+        <p id="piscina-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Mis accesos</h3>
+        <div id="lista-mis-accesos-piscina"></div>
+      </div>
+    </div>
+
+    <div id="res-panel-multas" class="oculto">
+      <div class="card">
+        <h3>🚫 Mis multas</h3>
+        <div id="lista-mis-multas"></div>
+      </div>
+    </div>
+
+    <div id="res-panel-pqrs" class="oculto">
+      <div class="card">
+        <h3>✉️ Radicar PQRS</h3>
+        <select id="pqrs-tipo">
+          <option value="Peticion">Petición</option>
+          <option value="Queja">Queja</option>
+          <option value="Reclamo">Reclamo</option>
+          <option value="Sugerencia">Sugerencia</option>
+        </select>
+        <textarea id="pqrs-descripcion" placeholder="Describe tu solicitud" rows="3"></textarea>
+        <button onclick="crearPQRSUI()">Enviar</button>
+        <p id="pqrs-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Mis PQRS</h3>
+        <div id="lista-mis-pqrs"></div>
+      </div>
     </div>
 
     <div class="tabbar">
@@ -162,6 +211,9 @@
       <button class="tab-btn" onclick="mostrarPanelResidente('pagos', this)"><span class="icono">💰</span><span class="etiqueta">Pagos</span></button>
       <button class="tab-btn" onclick="mostrarPanelResidente('vehiculos', this)"><span class="icono">🚗</span><span class="etiqueta">Vehículos</span></button>
       <button class="tab-btn" onclick="mostrarPanelResidente('zonas', this)"><span class="icono">🌳</span><span class="etiqueta">Zonas</span></button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('piscina', this)"><span class="icono">🏊</span><span class="etiqueta">Piscina</span></button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('multas', this)"><span class="icono">🚫</span><span class="etiqueta">Multas</span></button>
+      <button class="tab-btn" onclick="mostrarPanelResidente('pqrs', this)"><span class="icono">✉️</span><span class="etiqueta">PQRS</span></button>
     </div>
   </div>
 
@@ -200,11 +252,55 @@
         <button onclick="registrarNovedadUI()">Registrar</button>
         <p id="nov-resultado"></p>
       </div>
+      <div class="card">
+        <h3>🔧 Reportar mantenimiento</h3>
+        <input type="text" id="mant-v-zona" placeholder="Zona/área">
+        <textarea id="mant-v-desc" placeholder="Describe el daño o problema" rows="3"></textarea>
+        <button onclick="reportarMantenimientoVigilanciaUI()">Reportar</button>
+        <p id="mant-v-resultado"></p>
+      </div>
+    </div>
+
+    <div id="vig-panel-piscina" class="oculto">
+      <div class="card">
+        <h3>🏊 Accesos a piscina hoy</h3>
+        <div id="lista-piscina-hoy"></div>
+      </div>
+    </div>
+
+    <div id="vig-panel-sos" class="oculto">
+      <div class="card">
+        <h3>🆘 Alertas activas</h3>
+        <div id="lista-alertas-sos"></div>
+      </div>
+    </div>
+
+    <div id="vig-panel-actas" class="oculto">
+      <div class="card">
+        <h3>📋 Registrar entrega de turno</h3>
+        <select id="acta-turno">
+          <option value="Mañana">Turno mañana</option>
+          <option value="Tarde">Turno tarde</option>
+          <option value="Noche">Turno noche</option>
+        </select>
+        <input type="text" id="acta-guardia-entrega" placeholder="Guardia que entrega">
+        <input type="text" id="acta-guardia-recibe" placeholder="Guardia que recibe (opcional)">
+        <textarea id="acta-observaciones" placeholder="Observaciones del turno" rows="3"></textarea>
+        <button onclick="crearActaUI()">Registrar acta</button>
+        <p id="acta-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Actas recientes</h3>
+        <div id="lista-actas"></div>
+      </div>
     </div>
 
     <div class="tabbar">
       <button class="tab-btn activo" onclick="mostrarPanelVigilancia('visitas', this)"><span class="icono">🚪</span><span class="etiqueta">Visitantes</span></button>
       <button class="tab-btn" onclick="mostrarPanelVigilancia('novedades', this)"><span class="icono">⚠️</span><span class="etiqueta">Novedades</span></button>
+      <button class="tab-btn" onclick="mostrarPanelVigilancia('piscina', this)"><span class="icono">🏊</span><span class="etiqueta">Piscina</span></button>
+      <button class="tab-btn" onclick="mostrarPanelVigilancia('sos', this)"><span class="icono">🆘</span><span class="etiqueta">SOS</span></button>
+      <button class="tab-btn" onclick="mostrarPanelVigilancia('actas', this)"><span class="icono">📋</span><span class="etiqueta">Actas</span></button>
     </div>
   </div>
 
@@ -240,20 +336,23 @@
 
     <div id="admin-panel-anuncios" class="oculto">
       <div class="card">
-        <h3>📢 Publicar aviso</h3>
-        <input type="text" id="an-titulo" placeholder="Título del aviso">
-        <textarea id="an-contenido" placeholder="Mensaje para los residentes" rows="3"></textarea>
-        <select id="an-tipo">
-          <option value="Informativo">Informativo</option>
-          <option value="Importante">Importante</option>
-          <option value="Emergencia">Emergencia</option>
+        <h3>📢 Publicar comunicado</h3>
+        <input type="text" id="an-titulo" placeholder="Título del comunicado">
+        <textarea id="an-contenido" placeholder="Mensaje para el conjunto" rows="3"></textarea>
+        <select id="an-dirigido">
+          <option value="Todos">Dirigido a: Todos</option>
+          <option value="Residentes">Dirigido a: Solo residentes</option>
+          <option value="Vigilancia">Dirigido a: Solo vigilancia</option>
         </select>
-        <button onclick="publicarAnuncioUI()">Publicar aviso</button>
+        <label style="font-size:13px; color:var(--texto-suave); display:block; margin:-4px 0 4px 2px;">Vence el (opcional, déjalo vacío para que no expire)</label>
+        <input type="date" id="an-expiracion">
+        <input type="file" id="an-imagen" accept="image/*">
+        <button onclick="publicarComunicadoUI()">Publicar comunicado</button>
         <p id="an-resultado"></p>
       </div>
       <div class="card">
-        <h3>Avisos publicados</h3>
-        <div id="lista-anuncios-admin"></div>
+        <h3>Comunicados publicados</h3>
+        <div id="lista-comunicados-admin"></div>
       </div>
     </div>
 
@@ -261,18 +360,25 @@
       <div class="card">
         <h3>🌳 Nueva zona común</h3>
         <input type="text" id="zc-nombre" placeholder="Nombre (ej. Salón social)">
-        <input type="text" id="zc-descripcion" placeholder="Descripción (opcional)">
         <div style="display:flex; gap:10px;">
           <input type="number" id="zc-capacidad" placeholder="Capacidad" style="width:50%;">
-          <input type="text" id="zc-icono" placeholder="Emoji (opcional)" style="width:50%;">
+          <input type="number" id="zc-costo" placeholder="Costo (opcional)" style="width:50%;">
         </div>
-        <input type="text" id="zc-horario" placeholder="Horario (ej. 8:00am - 8:00pm)">
+        <input type="text" id="zc-horario" placeholder="Horario disponible (ej. 8:00am - 8:00pm)">
+        <label style="display:flex; align-items:center; gap:8px; font-size:14px; color:var(--texto-suave); margin-bottom:14px;">
+          <input type="checkbox" id="zc-requiere-aprobacion" style="width:auto; margin:0;">
+          Requiere aprobación del administrador para reservar
+        </label>
         <button onclick="crearZonaUI()">Crear zona</button>
         <p id="zc-resultado"></p>
       </div>
       <div class="card">
         <h3>Zonas registradas</h3>
         <div id="lista-zonas-admin"></div>
+      </div>
+      <div class="card">
+        <h3>⏳ Reservas pendientes de aprobación</h3>
+        <div id="lista-reservas-pendientes"></div>
       </div>
     </div>
 
@@ -292,6 +398,47 @@
         <h3>Guardias registrados</h3>
         <div id="lista-guardias"></div>
       </div>
+      <div class="card">
+        <h3>📋 Actas de entrega de turno</h3>
+        <div id="lista-actas-admin"></div>
+      </div>
+    </div>
+
+    <div id="admin-panel-multas" class="oculto">
+      <div class="card">
+        <h3>🚫 Nueva multa</h3>
+        <select id="mu-apto"></select>
+        <input type="text" id="mu-motivo" placeholder="Motivo">
+        <input type="number" id="mu-valor" placeholder="Valor">
+        <input type="file" id="mu-evidencia" accept="image/*,.pdf">
+        <button onclick="crearMultaUI()">Registrar multa</button>
+        <p id="mu-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Multas registradas</h3>
+        <div id="lista-multas-admin"></div>
+      </div>
+    </div>
+
+    <div id="admin-panel-pqrs" class="oculto">
+      <div class="card">
+        <h3>✉️ PQRS del conjunto</h3>
+        <div id="lista-pqrs-admin"></div>
+      </div>
+    </div>
+
+    <div id="admin-panel-mantenimiento" class="oculto">
+      <div class="card">
+        <h3>🔧 Reportes de mantenimiento</h3>
+        <div id="lista-mantenimiento-admin"></div>
+      </div>
+    </div>
+
+    <div id="admin-panel-sos" class="oculto">
+      <div class="card">
+        <h3>🆘 Alertas activas</h3>
+        <div id="lista-alertas-sos-admin"></div>
+      </div>
     </div>
 
     <div class="tabbar">
@@ -301,6 +448,10 @@
       <button class="tab-btn" onclick="mostrarPanelAdmin('anuncios', this)"><span class="icono">📢</span><span class="etiqueta">Avisos</span></button>
       <button class="tab-btn" onclick="mostrarPanelAdmin('zonas', this)"><span class="icono">🌳</span><span class="etiqueta">Zonas</span></button>
       <button class="tab-btn" onclick="mostrarPanelAdmin('guardas', this)"><span class="icono">🛡️</span><span class="etiqueta">Guardas</span></button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('multas', this)"><span class="icono">🚫</span><span class="etiqueta">Multas</span></button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('pqrs', this)"><span class="icono">✉️</span><span class="etiqueta">PQRS</span></button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('mantenimiento', this)"><span class="icono">🔧</span><span class="etiqueta">Manten.</span></button>
+      <button class="tab-btn" onclick="mostrarPanelAdmin('sos', this)"><span class="icono">🆘</span><span class="etiqueta">SOS</span></button>
     </div>
   </div>
 

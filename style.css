@@ -170,6 +170,48 @@ button.rojo { background: var(--rojo); }
 .anuncio-item.importante { border-left-color: var(--amarillo); }
 .anuncio-item.emergencia { border-left-color: #f87171; }
 
+/* ==================== BOTÓN SOS ==================== */
+.btn-sos {
+  width: 100%;
+  background: linear-gradient(135deg, #dc2626, #991b1b);
+  color: white;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  padding: 18px;
+  border-radius: 16px;
+  margin: 0 0 16px 0;
+  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.35);
+  animation: pulso-sos 2.2s infinite;
+}
+@keyframes pulso-sos {
+  0%, 100% { box-shadow: 0 10px 24px rgba(220, 38, 38, 0.35); }
+  50% { box-shadow: 0 10px 30px rgba(220, 38, 38, 0.6); }
+}
+.alerta-sos-item {
+  background: #fef2f2;
+  border-left: 4px solid var(--rojo);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.anuncio-item img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-top: 8px;
+  display: block;
+}
+.item-lista img.miniatura-aviso {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-top: 8px;
+  display: block;
+}
+
 .item-lista {
   border-bottom: 1px solid var(--borde);
   padding: 12px 0;
