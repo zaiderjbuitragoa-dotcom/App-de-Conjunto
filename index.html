@@ -439,8 +439,25 @@
       </div>
     </div>
 
+    <div id="admin-panel-cargos" class="panel-modal oculto"><div class="modal-header"><h2>💲 Cargos y Cuotas</h2><button class="btn-cerrar-modal" onclick="cerrarModuloAdmin()">✕ Cerrar</button></div>
+      <div class="card">
+        <h3>💲 Asignar Cargo / Cuota</h3>
+        <select id="cg-apto"></select>
+        <input type="text" id="cg-concepto" placeholder="Concepto (ej. Cuota Administración)">
+        <input type="number" id="cg-valor" placeholder="Valor ($)">
+        <input type="text" id="cg-periodo" placeholder="Periodo (ej. 2026-08)">
+        <button onclick="crearCargoUI()">Asignar cargo</button>
+        <p id="cg-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>Historial de Cargos</h3>
+        <div id="lista-cargos-admin"></div>
+      </div>
+    </div>
+
     <div class="grid-modulos">
 <button class="modulo-card" onclick="mostrarPanelAdmin('pagos')"><span class="modulo-badge oculto" id="badge-admin-pagos"></span><span class="modulo-icono">💰</span><span class="modulo-nombre">Pagos</span></button>
+<button class="modulo-card" onclick="mostrarPanelAdmin('cargos')"><span class="modulo-badge oculto" id="badge-admin-cargos"></span><span class="modulo-icono">💲</span><span class="modulo-nombre">Cargos / Cuotas</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('aprobaciones')"><span class="modulo-badge oculto" id="badge-admin-aprobaciones"></span><span class="modulo-icono">✅</span><span class="modulo-nombre">Aprobar residentes</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('anuncios')"><span class="modulo-badge oculto" id="badge-admin-anuncios"></span><span class="modulo-icono">📢</span><span class="modulo-nombre">Avisos</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('zonas')"><span class="modulo-badge oculto" id="badge-admin-zonas"></span><span class="modulo-icono">🌳</span><span class="modulo-nombre">Zonas comunes</span></button>

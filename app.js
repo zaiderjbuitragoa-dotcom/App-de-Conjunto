@@ -226,10 +226,22 @@ function subirComprobanteUI() {
       idUsuario: SESION.idUsuario, idApto: SESION.idApto,
       valor: valor, periodo: periodo,
       base64: base64, nombreArchivo: archivo.name, mimeType: archivo.type
-    }).then(function () {
+    }).then(function (r) {
       mostrarCargando(false);
-      document.getElementById('pago-resultado').innerText = '✅ Comprobante enviado, pendiente de validación.';
+      const el = document.getElementById('pago-resultado');
+      // ✅ FIX: verificar r.ok antes de mostrar éxito
+      if (!r.ok) {
+        el.innerHTML = '<span style="color:var(--rojo)">❌ ' + (r.mensaje || 'Error al guardar el comprobante') + '</span>';
+        return;
+      }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Comprobante enviado, pendiente de validación.</span>';
+      document.getElementById('pago-valor').value = '';
+      document.getElementById('pago-periodo').value = '';
+      document.getElementById('pago-archivo').value = '';
       cargarHistorialPagos();
+    }).catch(function (err) {
+      mostrarCargando(false);
+      document.getElementById('pago-resultado').innerHTML = '<span style="color:var(--rojo)">❌ Error: ' + err.message + '</span>';
     });
   };
   lector.readAsDataURL(archivo);
@@ -498,6 +510,8 @@ function iniciarVigilancia() {
   document.getElementById('vista-vigilancia').classList.remove('oculto');
   cargarComunicados('vig-anuncios');
   cargarBannerSOS();
+  // ✅ FIX: cargar badge de novedades para vigilancia al iniciar
+  cargarBadgeNovedadesVigilancia();
 }
 
 function mostrarPanelVigilancia(panel) {
@@ -628,6 +642,23 @@ function cargarBannerSOS() {
     });
 }
 
+// ✅ FIX: carga y muestra el conteo de novedades abiertas en el badge de vigilancia
+function cargarBadgeNovedadesVigilancia() {
+  llamarAPI('getNovedadesAbiertas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const novedades = r.novedades || [];
+      const badge = document.getElementById('badge-vig-novedades');
+      if (!badge) return;
+      if (novedades.length > 0) {
+        badge.innerText = novedades.length;
+        badge.classList.remove('oculto');
+      } else {
+        badge.classList.add('oculto');
+      }
+    })
+    .catch(function () { /* si falla, simplemente no muestra badge */ });
+}
+
 function cargarAlertasSOSVigilancia() {
   llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
     .then(function (r) {
@@ -701,6 +732,7 @@ function iniciarAdmin() {
 function mostrarPanelAdmin(panel) {
   document.getElementById('admin-panel-' + panel).classList.remove('oculto');
   if (panel === 'pagos') cargarPagosPendientesUI();
+  if (panel === 'cargos') { cargarApartamentosCargosSelect(); cargarCargosAdmin(); }
   if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
   if (panel === 'anuncios') cargarComunicadosAdmin();
   if (panel === 'zonas') { cargarZonasAdmin(); cargarReservasPendientesAdmin(); }
@@ -712,7 +744,7 @@ function mostrarPanelAdmin(panel) {
 }
 
 function cerrarModuloAdmin() {
-  ['pagos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
+  ['pagos', 'cargos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
     document.getElementById('admin-panel-' + p).classList.add('oculto');
   });
   cargarDashboardAdmin();
@@ -726,6 +758,8 @@ function cargarDashboardAdmin() {
       document.getElementById('admin-count-novedades').innerText = d.novedadesAbiertas;
       document.getElementById('admin-count-pqrs').innerText = d.pqrsAbiertos;
       ponerBadge('badge-admin-pagos', d.pagosPendientes);
+      // ✅ FIX: badge de novedades faltaba
+      ponerBadge('badge-admin-novedades', d.novedadesAbiertas);
       ponerBadge('badge-admin-pqrs', d.pqrsAbiertos);
     });
   llamarAPI('getUsuariosPendientes', { idUsuario: SESION.idUsuario })
@@ -1184,3 +1218,78 @@ function atenderAlertaAdminUI(idAlerta) {
       cargarAlertasSOSAdmin();
     });
 }
+
+/* ---------------- ADMIN · CARGOS / CUOTAS ---------------- */
+function cargarApartamentosCargosSelect() {
+  const select = document.getElementById('cg-apto');
+  if (!select || select.options.length) return;
+  llamarAPI('getApartamentos', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const apartamentos = r.apartamentos || [];
+      select.innerHTML = '';
+      
+      const optTodos = document.createElement('option');
+      optTodos.value = 'TODOS';
+      optTodos.textContent = '📢 TODOS LOS APARTAMENTOS (Asignación Masiva)';
+      select.appendChild(optTodos);
+
+      apartamentos.forEach(function (a) {
+        const opt = document.createElement('option');
+        opt.value = a.ID_Apto;
+        opt.textContent = a.ID_Apto + (a.Numero ? ' (Apto ' + a.Numero + ')' : '');
+        select.appendChild(opt);
+      });
+    });
+}
+
+function crearCargoUI() {
+  const idApto = document.getElementById('cg-apto').value;
+  const concepto = document.getElementById('cg-concepto').value.trim();
+  const valor = document.getElementById('cg-valor').value;
+  const periodo = document.getElementById('cg-periodo').value.trim();
+
+  if (!concepto || !valor || !periodo) {
+    alert('Completa el concepto, el valor y el periodo (ej. 2026-08)');
+    return;
+  }
+
+  mostrarCargando(true);
+  llamarAPI('crearCargo', {
+    idUsuario: SESION.idUsuario,
+    idApto: idApto,
+    concepto: concepto,
+    valor: valor,
+    periodo: periodo
+  }).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('cg-resultado');
+    if (!r.ok) {
+      el.innerHTML = '<span style="color:var(--rojo)">❌ ' + r.mensaje + '</span>';
+      return;
+    }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ ' + r.mensaje + '</span>';
+    document.getElementById('cg-concepto').value = '';
+    document.getElementById('cg-valor').value = '';
+    document.getElementById('cg-periodo').value = '';
+    cargarCargosAdmin();
+  }).catch(function (err) {
+    mostrarCargando(false);
+    document.getElementById('cg-resultado').innerHTML = '<span style="color:var(--rojo)">❌ Error: ' + err.message + '</span>';
+  });
+}
+
+function cargarCargosAdmin() {
+  llamarAPI('getCargos', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-cargos-admin');
+      const cargos = (r.cargos || []).reverse(); // Mas recientes primero
+      cont.innerHTML = cargos.length ? '' : '<p>No hay cargos o cuotas asignadas todavía.</p>';
+      cargos.slice(0, 30).forEach(function (c) {
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>Apto ' + c.ID_Apto + '</b> — $' + Number(c.Valor).toLocaleString('es-CO') +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Concepto + ' (' + c.Periodo + ')</span>' +
+          '</div>';
+      });
+    });
+}
+
