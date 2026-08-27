@@ -104,29 +104,106 @@ function registrarUsuarioUI() {
   });
 }
 
-/* ---------------- AVISOS / COMUNICADOS (compartido entre roles) ---------------- */
+/* ---------------- AVISOS / COMUNICADOS (Carrusel & Formateador Drive) ---------------- */
+const _estadoComunicados = {}; // almacena { lista: [], idx: 0 } por contenedor
+
+function extraerDriveId(url) {
+  if (!url) return '';
+  const match = String(url).match(/[-\w]{25,}/);
+  return match ? match[0] : '';
+}
+
 function cargarComunicados(contenedorId) {
   const cont = document.getElementById(contenedorId);
   if (!cont) return;
   llamarAPI('getComunicados', { idUsuario: SESION.idUsuario })
     .then(function (r) {
-      const comunicados = (r.comunicados || []).slice(0, 5);
+      const comunicados = r.comunicados || [];
       if (!comunicados.length) {
-        cont.innerHTML = '<h3>📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px; margin:0;">No hay avisos por ahora.</p>';
+        cont.innerHTML = '<h3 style="margin:0; font-size:12px; letter-spacing:0.4px; text-transform:uppercase; opacity:0.85;">📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px; margin:8px 0 0 0;">No hay avisos vigentes por ahora.</p>';
         return;
       }
-      let html = '<h3>📢 Avisos del conjunto</h3>';
-      comunicados.forEach(function (c) {
-        const fecha = c.Fecha_Publicacion ? new Date(c.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
-        html += '<div class="anuncio-item">' +
-          '<div class="titulo">' + c.Titulo + '</div>' +
-          '<div>' + c.Contenido + '</div>' +
-          (c.Adjunto_URL ? '<img src="' + c.Adjunto_URL + '">' : '') +
-          '<div class="fecha">' + fecha + '</div>' +
-          '</div>';
-      });
-      cont.innerHTML = html;
+      _estadoComunicados[contenedorId] = { lista: comunicados, idx: 0 };
+      renderComunicadoSlide(contenedorId);
     });
+}
+
+function renderComunicadoSlide(contenedorId) {
+  const cont = document.getElementById(contenedorId);
+  const st = _estadoComunicados[contenedorId];
+  if (!cont || !st || !st.lista.length) return;
+
+  const total = st.lista.length;
+  if (st.idx >= total) st.idx = 0;
+  if (st.idx < 0) st.idx = total - 1;
+
+  const c = st.lista[st.idx];
+  const fecha = c.Fecha_Publicacion ? new Date(c.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
+  const driveId = extraerDriveId(c.Adjunto_URL);
+  
+  // URL directa de CDN de Google que carga 100% confiable en <img>
+  const imgSrc = driveId 
+    ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') 
+    : c.Adjunto_URL;
+
+  let navHtml = '';
+  if (total > 1) {
+    navHtml = `
+      <div class="anuncios-nav-btns">
+        <button class="btn-nav-aviso" onclick="cambiarSlideAviso('${contenedorId}', -1)" title="Anterior">❮</button>
+        <span style="font-size:11px; opacity:0.9; font-weight:800;">${st.idx + 1} / ${total}</span>
+        <button class="btn-nav-aviso" onclick="cambiarSlideAviso('${contenedorId}', 1)" title="Siguiente">❯</button>
+      </div>`;
+  }
+
+  let dotsHtml = '';
+  if (total > 1) {
+    dotsHtml = '<div class="anuncios-dots">' +
+      st.lista.map(function (_, i) {
+        return `<span class="dot-aviso ${i === st.idx ? 'activo' : ''}" onclick="irASlideAviso('${contenedorId}', ${i})"></span>`;
+      }).join('') +
+      '</div>';
+  }
+
+  let imgTag = '';
+  if (c.Adjunto_URL) {
+    const fallbackSrc = driveId ? ('https://drive.google.com/thumbnail?id=' + driveId + '&sz=w1000') : c.Adjunto_URL;
+    imgTag = `
+      <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}" 
+        onerror="this.onerror=null; this.src='${fallbackSrc}';">
+    `;
+  }
+
+  cont.innerHTML = `
+    <div class="anuncios-header-row">
+      <h3 style="margin:0; font-size:12px; letter-spacing:0.4px; text-transform:uppercase; opacity:0.85;">📢 Avisos del conjunto</h3>
+      ${navHtml}
+    </div>
+    <div class="anuncio-item" style="margin-bottom:0;">
+      <div class="titulo" style="font-size:15px; font-weight:800;">${c.Titulo}</div>
+      <div style="margin-top:4px; opacity:0.95;">${c.Contenido}</div>
+      ${imgTag}
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+        <span class="fecha">${fecha}</span>
+        ${c.Dirigido_A ? `<span style="font-size:10px; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px; font-weight:700;">${c.Dirigido_A}</span>` : ''}
+      </div>
+    </div>
+    ${dotsHtml}
+  `;
+}
+
+function cambiarSlideAviso(contenedorId, dir) {
+  const st = _estadoComunicados[contenedorId];
+  if (!st) return;
+  st.idx += dir;
+  renderComunicadoSlide(contenedorId);
+}
+
+function irASlideAviso(contenedorId, index) {
+  const st = _estadoComunicados[contenedorId];
+  if (!st) return;
+  st.idx = index;
+  renderComunicadoSlide(contenedorId);
 }
 
 /* ---------------- RESIDENTE ---------------- */
@@ -523,9 +600,10 @@ function mostrarPanelVigilancia(panel) {
 }
 
 function cerrarModuloVigilancia() {
-  ['visitas', 'novedades', 'piscina', 'sos', 'actas'].forEach(function (p) {
+  ['placas', 'visitas', 'novedades', 'piscina', 'sos', 'actas'].forEach(function (p) {
     document.getElementById('vig-panel-' + p).classList.add('oculto');
   });
+  detenerCamaraPlaca();
   cargarBannerSOS();
 }
 
@@ -731,6 +809,7 @@ function iniciarAdmin() {
 
 function mostrarPanelAdmin(panel) {
   document.getElementById('admin-panel-' + panel).classList.remove('oculto');
+  if (panel === 'vehiculos') cargarTodosVehiculosAdmin();
   if (panel === 'pagos') cargarPagosPendientesUI();
   if (panel === 'cargos') { cargarApartamentosCargosSelect(); cargarCargosAdmin(); }
   if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
@@ -744,7 +823,7 @@ function mostrarPanelAdmin(panel) {
 }
 
 function cerrarModuloAdmin() {
-  ['pagos', 'cargos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
+  ['vehiculos', 'pagos', 'cargos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
     document.getElementById('admin-panel-' + p).classList.add('oculto');
   });
   cargarDashboardAdmin();
@@ -1290,6 +1369,159 @@ function cargarCargosAdmin() {
           '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Concepto + ' (' + c.Periodo + ')</span>' +
           '</div>';
       });
+    });
+}
+
+/* ---------------- VIGILANCIA & ADMIN · CONTROL DE PLACAS Y BLOQUEO POR MORA ---------------- */
+let streamCamara = null;
+
+function toggleCamaraPlaca() {
+  const container = document.getElementById('camara-container');
+  const video = document.getElementById('video-camara');
+  if (!container || !video) return;
+
+  if (streamCamara) {
+    detenerCamaraPlaca();
+    container.classList.add('oculto');
+  } else {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(function (stream) {
+        streamCamara = stream;
+        video.srcObject = stream;
+        container.classList.remove('oculto');
+      })
+      .catch(function (err) {
+        alert('No se pudo acceder a la cámara: ' + err.message);
+      });
+  }
+}
+
+function detenerCamaraPlaca() {
+  if (streamCamara) {
+    streamCamara.getTracks().forEach(function (t) { t.stop(); });
+    streamCamara = null;
+  }
+  const container = document.getElementById('camara-container');
+  if (container) container.classList.add('oculto');
+}
+
+function renderResultadoPlaca(r, containerId) {
+  const cont = document.getElementById(containerId);
+  if (!cont) return;
+
+  if (!r.encontrado) {
+    cont.innerHTML = `
+      <div class="semaforo rojo" style="margin-top:14px; padding:20px; border-radius:18px;">
+        <div style="font-size:36px; margin-bottom:4px;">⚠️</div>
+        <div style="font-size:20px; font-weight:800;">PLACA NO REGISTRADA</div>
+        <div style="font-size:14px; margin-top:6px; opacity:0.9;">No figura en el sistema del conjunto.</div>
+      </div>`;
+    return;
+  }
+
+  const veh = r.vehiculo || {};
+  if (r.permitirIngreso) {
+    cont.innerHTML = `
+      <div class="semaforo verde" style="margin-top:14px; padding:22px; border-radius:18px; box-shadow: 0 8px 24px rgba(22,163,74,0.3);">
+        <div style="font-size:38px; margin-bottom:4px;">🟢</div>
+        <div style="font-size:22px; font-weight:800; letter-spacing:0.5px;">INGRESO PERMITIDO</div>
+        <div style="font-size:15px; margin-top:6px; font-weight:700;">APARTAMENTO AL DÍA</div>
+      </div>
+      <div class="card" style="margin-top:12px; border-left:5px solid var(--verde);">
+        <div style="font-size:20px; font-weight:800; color:var(--verde-oscuro); margin-bottom:8px;">🚘 ${veh.Placa}</div>
+        <p style="margin:4px 0;"><b>Apartamento:</b> Apto ${r.idApto}</p>
+        <p style="margin:4px 0;"><b>Vehículo:</b> ${veh.Tipo} ${veh.Marca || ''} (${veh.Color || 'Sin color'})</p>
+        <p style="margin:4px 0;"><b>Propietario:</b> ${veh.Propietario || 'No especificado'}</p>
+        <p style="margin:4px 0; color:var(--verde-oscuro); font-weight:700;"><b>Estado Financiero:</b> Al día ($0 pendiente)</p>
+      </div>`;
+  } else {
+    cont.innerHTML = `
+      <div class="semaforo rojo" style="margin-top:14px; padding:22px; border-radius:18px; box-shadow: 0 8px 24px rgba(220,38,38,0.4); animation: pulso-sos 1.8s infinite;">
+        <div style="font-size:42px; margin-bottom:4px;">🔴</div>
+        <div style="font-size:22px; font-weight:900; letter-spacing:0.5px;">NO PUEDE INGRESAR</div>
+        <div style="font-size:15px; margin-top:6px; font-weight:800; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:10px;">${r.motivo}</div>
+      </div>
+      <div class="card" style="margin-top:12px; border-left:5px solid var(--rojo);">
+        <div style="font-size:20px; font-weight:800; color:var(--rojo); margin-bottom:8px;">🚘 ${veh.Placa}</div>
+        <p style="margin:4px 0;"><b>Apartamento:</b> Apto ${r.idApto}</p>
+        <p style="margin:4px 0;"><b>Vehículo:</b> ${veh.Tipo} ${veh.Marca || ''} (${veh.Color || ''})</p>
+        <p style="margin:4px 0;"><b>Propietario:</b> ${veh.Propietario || 'No especificado'}</p>
+        ${r.estaEnMora ? `<p style="margin:8px 0 0 0; color:var(--rojo); font-size:17px; font-weight:900;"><b>Saldo en Mora:</b> $${r.saldo.toLocaleString('es-CO')}</p>` : ''}
+      </div>`;
+  }
+}
+
+function verificarPlacaVigilanciaUI() {
+  const placa = document.getElementById('placa-buscar-input').value.trim();
+  if (!placa) { alert('Ingresa o escanea la placa'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('verificarPlacaVehiculo', { idUsuario: SESION.idUsuario, placa: placa })
+    .then(function (r) {
+      mostrarCargando(false);
+      renderResultadoPlaca(r, 'resultado-placa-box');
+    })
+    .catch(function (err) {
+      mostrarCargando(false);
+      alert('Error verificando placa: ' + err.message);
+    });
+}
+
+function verificarPlacaAdminUI() {
+  const placa = document.getElementById('admin-placa-input').value.trim();
+  if (!placa) { alert('Ingresa la placa'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('verificarPlacaVehiculo', { idUsuario: SESION.idUsuario, placa: placa })
+    .then(function (r) {
+      mostrarCargando(false);
+      renderResultadoPlaca(r, 'admin-placa-resultado-box');
+    })
+    .catch(function (err) {
+      mostrarCargando(false);
+      alert('Error verificando placa: ' + err.message);
+    });
+}
+
+function cargarTodosVehiculosAdmin() {
+  llamarAPI('getTodosVehiculosAdmin', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-vehiculos-admin');
+      const vehiculos = r.vehiculos || [];
+      cont.innerHTML = vehiculos.length ? '' : '<p>No hay vehículos registrados en el conjunto.</p>';
+
+      vehiculos.forEach(function (v) {
+        const estaEnMora = v.EstaEnMora;
+        const claseBadge = estaEnMora ? 'rechazado' : (v.Autorizado === 'Si' ? 'autorizado' : 'pendiente');
+        const estadoTexto = estaEnMora ? '🔴 BLOQUEADO POR MORA ($' + v.SaldoApto.toLocaleString('es-CO') + ')' : (v.Autorizado === 'Bloqueado' ? '🔴 BLOQUEADO POR ADMIN' : '🟢 AL DÍA');
+
+        cont.innerHTML += `
+          <div class="item-lista">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <b style="font-size:16px;">🚘 ${v.Placa}</b>
+              <span class="badge ${claseBadge}">${estadoTexto}</span>
+            </div>
+            <div style="font-size:13px; color:var(--texto-suave); margin-top:4px;">
+              <b>Apto:</b> ${v.ID_Apto} · <b>Propietario:</b> ${v.Propietario}<br>
+              ${v.Tipo} ${v.Marca ? '· ' + v.Marca : ''} ${v.Color ? '· Color: ' + v.Color : ''}
+            </div>
+            <div style="margin-top:8px; display:flex; gap:8px;">
+              ${v.Autorizado === 'Bloqueado'
+                ? `<button class="verde" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Si')">✅ Desbloquear</button>`
+                : `<button class="rojo" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Bloqueado')">🚫 Bloquear Manualmente</button>`
+              }
+            </div>
+          </div>`;
+      });
+    });
+}
+
+function actualizarEstadoVehiculoAdminUI(idVehiculo, nuevoEstado) {
+  mostrarCargando(true);
+  llamarAPI('actualizarEstadoVehiculoAdmin', { idUsuario: SESION.idUsuario, idVehiculo: idVehiculo, nuevoEstado: nuevoEstado })
+    .then(function () {
+      mostrarCargando(false);
+      cargarTodosVehiculosAdmin();
     });
 }
 
