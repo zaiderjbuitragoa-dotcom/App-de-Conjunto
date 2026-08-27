@@ -229,38 +229,66 @@ button.rojo { background: var(--rojo); }
   margin-bottom: 16px;
   box-shadow: 0 12px 28px rgba(30, 27, 75, 0.28);
 }
-.anuncios-banner h3 {
-  color: white;
-  margin: 0 0 12px 0;
-  font-size: 13px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  opacity: 0.85;
-  font-weight: 700;
-}
-.banner-sos {
-  background: linear-gradient(135deg, #dc2626, #991b1b);
-  color: white;
-  border-radius: 14px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-  font-weight: 700;
-  font-size: 14px;
-}
-.anuncio-item {
-  background: rgba(255,255,255,0.12);
-  border-left: 4px solid rgba(255,255,255,0.35);
-  border-radius: 12px;
-  padding: 12px 14px;
+.anuncios-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 10px;
-  font-size: 13.5px;
-  line-height: 1.4;
 }
-.anuncio-item:last-child { margin-bottom: 0; }
-.anuncio-item .titulo { font-weight: 700; font-size: 14.5px; margin-bottom: 3px; }
-.anuncio-item .fecha { font-size: 11px; opacity: 0.7; margin-top: 6px; }
-.anuncio-item.importante { border-left-color: var(--amarillo); }
-.anuncio-item.emergencia { border-left-color: #f87171; }
+.anuncios-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-nav-aviso {
+  background: rgba(255, 255, 255, 0.22);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.btn-nav-aviso:hover { background: rgba(255, 255, 255, 0.38); }
+.btn-nav-aviso:active { transform: scale(0.92); }
+.anuncios-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.dot-aviso {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.dot-aviso.activo {
+  background: white;
+  width: 20px;
+  border-radius: 4px;
+}
+.img-comunicado {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-top: 10px;
+  display: block;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+  background: rgba(255,255,255,0.05);
+}
+
 
 /* ==================== BOTÓN SOS ==================== */
 .btn-sos {
