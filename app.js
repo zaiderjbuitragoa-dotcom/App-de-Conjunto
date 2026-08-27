@@ -104,44 +104,65 @@ function registrarUsuarioUI() {
   });
 }
 
+/* ---------------- AVISOS / COMUNICADOS (compartido entre roles) ---------------- */
+function cargarComunicados(contenedorId) {
+  const cont = document.getElementById(contenedorId);
+  if (!cont) return;
+  llamarAPI('getComunicados', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const comunicados = (r.comunicados || []).slice(0, 5);
+      if (!comunicados.length) {
+        cont.innerHTML = '<h3>📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px; margin:0;">No hay avisos por ahora.</p>';
+        return;
+      }
+      let html = '<h3>📢 Avisos del conjunto</h3>';
+      comunicados.forEach(function (c) {
+        const fecha = c.Fecha_Publicacion ? new Date(c.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
+        html += '<div class="anuncio-item">' +
+          '<div class="titulo">' + c.Titulo + '</div>' +
+          '<div>' + c.Contenido + '</div>' +
+          (c.Adjunto_URL ? '<img src="' + c.Adjunto_URL + '">' : '') +
+          '<div class="fecha">' + fecha + '</div>' +
+          '</div>';
+      });
+      cont.innerHTML = html;
+    });
+}
+
 /* ---------------- RESIDENTE ---------------- */
 function iniciarResidente() {
   document.getElementById('vista-residente').classList.remove('oculto');
   document.getElementById('res-nombre').innerText = SESION.nombre;
+  cargarComunicados('res-anuncios');
   cargarEstadoCuenta();
   cargarMisVisitas();
-  cargarComunicadosResidente();
-  cargarZonasComunesSelect();
 }
 
-function mostrarPanelResidente(panel, btn) {
-  ['inicio', 'visitas', 'reservas', 'pagos', 'vehiculos'].forEach(function (p) {
-    document.getElementById('res-panel-' + p).classList.toggle('oculto', p !== panel);
-  });
-  document.querySelectorAll('#vista-residente .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
-  btn.classList.add('activo');
+function mostrarPanelResidente(panel) {
+  document.getElementById('res-panel-' + panel).classList.remove('oculto');
+  if (panel === 'visitas') cargarMisVisitas();
   if (panel === 'pagos') cargarHistorialPagos();
-  if (panel === 'vehiculos') { cargarMisVehiculos(); cargarMisPQRS(); cargarMisSolicitudesPiscina(); cargarMisMultas(); }
-  if (panel === 'reservas') cargarMisReservas();
+  if (panel === 'vehiculos') cargarMisVehiculos();
+  if (panel === 'zonas') { cargarZonasComunes(); cargarMisReservas(); }
+  if (panel === 'piscina') cargarMisAccesosPiscina();
+  if (panel === 'multas') cargarMisMultas();
+  if (panel === 'pqrs') cargarMisPQRS();
 }
 
-function cargarComunicadosResidente() {
-  llamarAPI('getComunicadosActivos', { idUsuario: SESION.idUsuario })
+function cerrarModuloResidente() {
+  ['visitas', 'pagos', 'vehiculos', 'zonas', 'piscina', 'multas', 'pqrs'].forEach(function (p) {
+    document.getElementById('res-panel-' + p).classList.add('oculto');
+  });
+}
+
+function dispararSOSUI() {
+  if (!confirm('¿Confirmas que deseas enviar una alerta de emergencia (SOS)? Se notificará de inmediato a portería y administración.')) return;
+  mostrarCargando(true);
+  llamarAPI('crearAlertaSOS', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
     .then(function (r) {
-      const cont = document.getElementById('lista-comunicados-residente');
-      const avisos = r.comunicados || [];
-      if (!avisos.length) {
-        cont.innerHTML = '<p class="sin-anuncios">No hay avisos por ahora.</p>';
-        return;
-      }
-      cont.innerHTML = '';
-      avisos.slice(0, 5).forEach(function (a) {
-        cont.innerHTML += '<div class="anuncio-item">' +
-          '<div class="anuncio-titulo">' + a.Titulo + '</div>' +
-          '<div class="anuncio-texto">' + a.Contenido + '</div>' +
-          '<div class="anuncio-fecha">' + a.Fecha_Publicacion + (a.Dirigido_A && a.Dirigido_A !== 'Todos' ? ' · ' + a.Dirigido_A : '') + '</div>' +
-          '</div>';
-      });
+      mostrarCargando(false);
+      if (r.ok) alert('🆘 Alerta enviada. Portería ha sido notificada.');
+      else alert('No se pudo enviar la alerta: ' + r.mensaje);
     });
 }
 
@@ -284,19 +305,38 @@ function eliminarVehiculoUI(idVehiculo) {
     });
 }
 
-/* ---------------- RESERVAS / ZONAS COMUNES ---------------- */
-function cargarZonasComunesSelect() {
+/* ---------------- ZONAS COMUNES (residente) ---------------- */
+function cargarZonasComunes() {
   llamarAPI('getZonasComunes', { idUsuario: SESION.idUsuario })
     .then(function (r) {
-      const select = document.getElementById('reserva-zona');
       const zonas = r.zonas || [];
-      select.innerHTML = zonas.length
-        ? zonas.map(function (z) { return '<option value="' + z.ID_Zona + '">' + z.Nombre + '</option>'; }).join('')
-        : '<option value="">No hay zonas configuradas todavía</option>';
+      const cont = document.getElementById('lista-zonas-comunes');
+      cont.innerHTML = zonas.length ? '' : '<p>Aún no hay zonas comunes configuradas.</p>';
+
+      const select = document.getElementById('reserva-zona');
+      select.innerHTML = '';
+
+      zonas.forEach(function (z) {
+        const requiereAprobacion = String(z.Requiere_Aprobacion).trim().toLowerCase() === 'si';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>🌳 ' + z.Nombre + '</b>' +
+          (z.Capacidad ? '<br><span style="color:var(--texto-suave); font-size:13px;">👥 Capacidad: ' + z.Capacidad + '</span>' : '') +
+          (z.Horario_Disponible ? '<br><span style="color:var(--texto-suave); font-size:13px;">🕒 ' + z.Horario_Disponible + '</span>' : '') +
+          (z.Costo ? '<br><span style="color:var(--texto-suave); font-size:13px;">💲 Costo: $' + z.Costo + '</span>' : '') +
+          (requiereAprobacion ? ' <span class="badge pendiente">Requiere aprobación</span>' : ' <span class="badge autorizado">Reserva directa</span>') +
+          '</div>';
+
+        const opt = document.createElement('option');
+        opt.value = z.ID_Zona;
+        opt.textContent = z.Nombre;
+        select.appendChild(opt);
+      });
+
+      document.getElementById('form-reservar-zona').classList.toggle('oculto', !select.options.length);
     });
 }
 
-function crearReservaUI() {
+function reservarZonaUI() {
   const idZona = document.getElementById('reserva-zona').value;
   const fecha = document.getElementById('reserva-fecha').value;
   const horaInicio = document.getElementById('reserva-hora-inicio').value;
@@ -304,14 +344,16 @@ function crearReservaUI() {
   if (!idZona || !fecha || !horaInicio || !horaFin) { alert('Completa todos los campos'); return; }
 
   mostrarCargando(true);
-  llamarAPI('crearReserva', {
+  llamarAPI('reservarZonaComun', {
     idUsuario: SESION.idUsuario, idApto: SESION.idApto,
     idZona: idZona, fecha: fecha, horaInicio: horaInicio, horaFin: horaFin
   }).then(function (r) {
     mostrarCargando(false);
     const el = document.getElementById('reserva-resultado');
     if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
-    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Reserva confirmada.</span>';
+    el.innerHTML = r.requiereAprobacion
+      ? '<span style="color:var(--amarillo)">⏳ Reserva enviada, pendiente de aprobación del administrador.</span>'
+      : '<span style="color:var(--verde-oscuro)">✅ Reserva confirmada.</span>';
     cargarMisReservas();
   });
 }
@@ -321,12 +363,12 @@ function cargarMisReservas() {
     .then(function (r) {
       const cont = document.getElementById('lista-mis-reservas');
       const reservas = r.reservas || [];
-      cont.innerHTML = reservas.length ? '' : '<p>No tienes reservas todavía.</p>';
+      cont.innerHTML = reservas.length ? '' : '<p>No tienes reservas.</p>';
       reservas.forEach(function (res) {
-        const clase = res.Estado === 'Confirmada' ? 'ingreso' : 'rechazado';
-        cont.innerHTML += '<div class="item-lista">' + res.Fecha + ' · ' + res.Hora_Inicio + ' - ' + res.Hora_Fin +
+        const clase = res.Estado === 'Confirmada' ? 'validado' : (res.Estado === 'Cancelada' ? 'rechazado' : 'pendiente');
+        cont.innerHTML += '<div class="item-lista"><b>' + res.Nombre_Zona + '</b> — ' + res.Fecha + ' (' + res.Hora_Inicio + ' - ' + res.Hora_Fin + ')' +
           ' <span class="badge ' + clase + '">' + res.Estado + '</span>' +
-          (res.Estado === 'Confirmada' ? '<br><button class="secundario" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="cancelarReservaUI(\'' + res.ID_Reserva + '\')">Cancelar</button>' : '') +
+          (res.Estado === 'Confirmada' ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="cancelarReservaUI(\'' + res.ID_Reserva + '\')">Cancelar</button>' : '') +
           '</div>';
       });
     });
@@ -342,17 +384,92 @@ function cancelarReservaUI(idReserva) {
     });
 }
 
-/* ---------------- PQRS (RESIDENTE) ---------------- */
+function reportarMantenimientoUI() {
+  const zonaArea = document.getElementById('mant-zona').value.trim();
+  const descripcion = document.getElementById('mant-desc').value.trim();
+  if (!zonaArea || !descripcion) { alert('Completa la zona y la descripción'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('reportarMantenimiento', { idUsuario: SESION.idUsuario, zonaArea: zonaArea, descripcion: descripcion })
+    .then(function (r) {
+      mostrarCargando(false);
+      const el = document.getElementById('mant-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Reporte enviado. Gracias por avisarnos.</span>';
+      document.getElementById('mant-zona').value = '';
+      document.getElementById('mant-desc').value = '';
+    });
+}
+
+/* ---------------- PISCINA (residente) ---------------- */
+function registrarAccesoPiscinaUI() {
+  const fecha = document.getElementById('piscina-fecha').value;
+  const numAcompanantes = document.getElementById('piscina-acompanantes').value;
+  const nombresAcompanantes = document.getElementById('piscina-nombres').value.trim();
+  if (!fecha) { alert('Selecciona la fecha'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('registrarAccesoPiscina', {
+    idUsuario: SESION.idUsuario, idApto: SESION.idApto,
+    fecha: fecha, numAcompanantes: numAcompanantes, nombresAcompanantes: nombresAcompanantes
+  }).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('piscina-resultado');
+    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Acceso solicitado.</span>';
+    document.getElementById('piscina-acompanantes').value = '';
+    document.getElementById('piscina-nombres').value = '';
+    cargarMisAccesosPiscina();
+  });
+}
+
+function cargarMisAccesosPiscina() {
+  llamarAPI('getMisAccesosPiscina', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const cont = document.getElementById('lista-mis-accesos-piscina');
+      const accesos = r.accesos || [];
+      cont.innerHTML = accesos.length ? '' : '<p>No has solicitado accesos a la piscina.</p>';
+      accesos.forEach(function (a) {
+        const clase = a.Estado === 'Ingresó' ? 'validado' : 'pendiente';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + a.Fecha + '</b> <span class="badge ' + clase + '">' + a.Estado + '</span>' +
+          (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)</span>' : '') +
+          '</div>';
+      });
+    });
+}
+
+/* ---------------- MULTAS (residente) ---------------- */
+function cargarMisMultas() {
+  llamarAPI('getMisMultas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      const cont = document.getElementById('lista-mis-multas');
+      const multas = r.multas || [];
+      cont.innerHTML = multas.length ? '' : '<p>No tienes multas registradas.</p>';
+      multas.forEach(function (m) {
+        const clase = m.Estado === 'Pagada' ? 'validado' : (m.Estado === 'Anulada' ? 'rechazado' : 'pendiente');
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + m.Motivo + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">💲 $' + m.Valor + ' — ' + m.Fecha + '</span>' +
+          (m.Evidencia_URL ? '<br><a href="' + m.Evidencia_URL + '" target="_blank" style="font-size:13px; color:var(--verde-oscuro);">Ver evidencia</a>' : '') +
+          '</div>';
+      });
+    });
+}
+
+/* ---------------- PQRS (residente) ---------------- */
 function crearPQRSUI() {
   const tipo = document.getElementById('pqrs-tipo').value;
   const descripcion = document.getElementById('pqrs-descripcion').value.trim();
-  if (!descripcion) { alert('Escribe una descripción'); return; }
+  if (!descripcion) { alert('Describe tu solicitud'); return; }
 
   mostrarCargando(true);
   llamarAPI('crearPQRS', { idUsuario: SESION.idUsuario, idApto: SESION.idApto, tipo: tipo, descripcion: descripcion })
-    .then(function () {
+    .then(function (r) {
       mostrarCargando(false);
-      document.getElementById('pqrs-resultado').innerText = '✅ Solicitud enviada.';
+      const el = document.getElementById('pqrs-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Enviado. Te responderemos pronto.</span>';
       document.getElementById('pqrs-descripcion').value = '';
       cargarMisPQRS();
     });
@@ -362,144 +479,40 @@ function cargarMisPQRS() {
   llamarAPI('getMisPQRS', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
     .then(function (r) {
       const cont = document.getElementById('lista-mis-pqrs');
-      const items = r.pqrs || [];
-      cont.innerHTML = items.length ? '' : '<p>No has enviado solicitudes.</p>';
-      items.forEach(function (p) {
-        const clase = p.Estado === 'Cerrado' ? 'ingreso' : 'pendiente';
-        cont.innerHTML += '<div class="item-lista"><b>' + p.Tipo + '</b> — ' + p.Fecha +
-          ' <span class="badge ' + clase + '">' + p.Estado + '</span>' +
-          '<br>' + p.Descripcion +
-          (p.Respuesta ? '<br><span style="color:var(--verde-oscuro); font-size:13px;">Respuesta: ' + p.Respuesta + '</span>' : '') +
+      const pqrs = r.pqrs || [];
+      cont.innerHTML = pqrs.length ? '' : '<p>No has radicado ninguna PQRS.</p>';
+      pqrs.forEach(function (p) {
+        const clase = p.Estado === 'Cerrado' ? 'validado' : 'pendiente';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + p.Tipo + '</b> <span class="badge ' + clase + '">' + p.Estado + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + p.Descripcion + '</span>' +
+          '<br><span style="font-size:12px; color:var(--texto-suave);">' + p.Fecha + '</span>' +
+          (p.Respuesta ? '<br><div style="margin-top:6px; padding:8px 10px; background:var(--verde-claro); border-radius:8px; font-size:13px;"><b>Respuesta:</b> ' + p.Respuesta + '</div>' : '') +
           '</div>';
       });
-    });
-}
-
-/* ---------------- PISCINA (RESIDENTE) ---------------- */
-function solicitarPiscinaUI() {
-  const fecha = document.getElementById('piscina-fecha').value;
-  const acompanantes = document.getElementById('piscina-acompanantes').value || 0;
-  const nombres = document.getElementById('piscina-nombres').value.trim();
-  if (!fecha) { alert('Elige una fecha'); return; }
-
-  mostrarCargando(true);
-  llamarAPI('solicitarPiscina', {
-    idUsuario: SESION.idUsuario, idApto: SESION.idApto,
-    fecha: fecha, numAcompanantes: acompanantes, nombresAcompanantes: nombres
-  }).then(function (r) {
-    mostrarCargando(false);
-    const el = document.getElementById('piscina-resultado');
-    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
-    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Solicitud aprobada.</span>';
-    cargarMisSolicitudesPiscina();
-  });
-}
-
-function cargarMisSolicitudesPiscina() {
-  llamarAPI('getMisSolicitudesPiscina', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
-    .then(function (r) {
-      const cont = document.getElementById('lista-piscina-residente');
-      const items = r.solicitudes || [];
-      cont.innerHTML = items.length ? '' : '<p>No tienes solicitudes de piscina.</p>';
-      items.forEach(function (p) {
-        cont.innerHTML += '<div class="item-lista">' + p.Fecha + ' — ' + p.Num_Acompanantes + ' acompañante(s) ' +
-          '<span class="badge ' + (p.Estado === 'Aprobado' ? 'ingreso' : 'pendiente') + '">' + p.Estado + '</span></div>';
-      });
-    });
-}
-
-/* ---------------- MULTAS (RESIDENTE) ---------------- */
-function cargarMisMultas() {
-  llamarAPI('getMisMultas', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
-    .then(function (r) {
-      const cont = document.getElementById('lista-mis-multas');
-      const items = r.multas || [];
-      cont.innerHTML = items.length ? '' : '<p>No tienes multas registradas.</p>';
-      items.forEach(function (m) {
-        const clase = m.Estado === 'Pagada' ? 'ingreso' : (m.Estado === 'Apelada' ? 'pendiente' : 'rechazado');
-        cont.innerHTML += '<div class="item-lista">' + m.Motivo + ' — $' + Number(m.Valor).toLocaleString('es-CO') +
-          ' <span class="badge ' + clase + '">' + m.Estado + '</span>' +
-          (m.Estado === 'Pendiente' ? '<br><button class="secundario" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="apelarMultaUI(\'' + m.ID_Multa + '\')">Apelar</button>' : '') +
-          '</div>';
-      });
-    });
-}
-
-function apelarMultaUI(idMulta) {
-  if (!confirm('¿Apelar esta multa?')) return;
-  mostrarCargando(true);
-  llamarAPI('apelarMulta', { idUsuario: SESION.idUsuario, idApto: SESION.idApto, idMulta: idMulta })
-    .then(function () {
-      mostrarCargando(false);
-      cargarMisMultas();
-    });
-}
-
-/* ---------------- MANTENIMIENTO (RESIDENTE) ---------------- */
-function reportarMantenimientoUI() {
-  const zona = document.getElementById('mant-zona').value.trim();
-  const descripcion = document.getElementById('mant-descripcion').value.trim();
-  if (!zona || !descripcion) { alert('Completa todos los campos'); return; }
-
-  mostrarCargando(true);
-  llamarAPI('reportarMantenimiento', { idUsuario: SESION.idUsuario, zonaArea: zona, descripcion: descripcion })
-    .then(function () {
-      mostrarCargando(false);
-      document.getElementById('mant-resultado').innerText = '✅ Reporte enviado.';
-      document.getElementById('mant-zona').value = '';
-      document.getElementById('mant-descripcion').value = '';
-    });
-}
-
-/* ---------------- SOS (RESIDENTE) ---------------- */
-function activarSOSUI() {
-  if (!confirm('¿Confirmas que quieres enviar una alerta de emergencia a vigilancia?')) return;
-  mostrarCargando(true);
-  llamarAPI('activarSOS', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
-    .then(function () {
-      mostrarCargando(false);
-      alert('🆘 Alerta enviada a vigilancia. Mantén la calma, ya fueron notificados.');
     });
 }
 
 /* ---------------- VIGILANCIA ---------------- */
 function iniciarVigilancia() {
   document.getElementById('vista-vigilancia').classList.remove('oculto');
-  cargarVisitasHoy();
+  cargarComunicados('vig-anuncios');
   cargarBannerSOS();
 }
 
-function mostrarPanelVigilancia(panel, btn) {
-  ['visitas', 'piscina', 'novedades', 'actas'].forEach(function (p) {
-    document.getElementById('vig-panel-' + p).classList.toggle('oculto', p !== panel);
-  });
-  document.querySelectorAll('#vista-vigilancia .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
-  btn.classList.add('activo');
+function mostrarPanelVigilancia(panel) {
+  document.getElementById('vig-panel-' + panel).classList.remove('oculto');
+  if (panel === 'visitas') cargarVisitasHoy();
   if (panel === 'piscina') cargarPiscinaHoy();
-  if (panel === 'actas') cargarUltimasActas();
+  if (panel === 'sos') cargarAlertasSOSVigilancia();
+  if (panel === 'actas') cargarActasVigilancia();
 }
 
-function cargarBannerSOS() {
-  llamarAPI('getSOSActivas', { idUsuario: SESION.idUsuario })
-    .then(function (r) {
-      const cont = document.getElementById('vig-banner-sos');
-      const alertas = r.alertas || [];
-      if (!alertas.length) { cont.classList.add('oculto'); cont.innerHTML = ''; return; }
-      cont.classList.remove('oculto');
-      cont.innerHTML = alertas.map(function (a) {
-        return '<div class="banner-sos"><span>🆘 Emergencia — Apto ' + a.ID_Apto + '</span>' +
-          '<button class="secundario" style="width:auto; padding:8px 14px; background:white;" onclick="atenderSOSUI(\'' + a.ID_Alerta + '\')">Atender</button></div>';
-      }).join('');
-    });
-}
-
-function atenderSOSUI(idAlerta) {
-  mostrarCargando(true);
-  llamarAPI('atenderSOS', { idUsuario: SESION.idUsuario, idAlerta: idAlerta })
-    .then(function () {
-      mostrarCargando(false);
-      cargarBannerSOS();
-    });
+function cerrarModuloVigilancia() {
+  ['visitas', 'novedades', 'piscina', 'sos', 'actas'].forEach(function (p) {
+    document.getElementById('vig-panel-' + p).classList.add('oculto');
+  });
+  cargarBannerSOS();
 }
 
 function cargarVisitasHoy() {
@@ -556,18 +569,35 @@ function registrarNovedadUI() {
   });
 }
 
-/* ---------------- PISCINA (VIGILANCIA) ---------------- */
+function reportarMantenimientoVigilanciaUI() {
+  const zonaArea = document.getElementById('mant-v-zona').value.trim();
+  const descripcion = document.getElementById('mant-v-desc').value.trim();
+  if (!zonaArea || !descripcion) { alert('Completa la zona y la descripción'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('reportarMantenimiento', { idUsuario: SESION.idUsuario, zonaArea: zonaArea, descripcion: descripcion })
+    .then(function (r) {
+      mostrarCargando(false);
+      const el = document.getElementById('mant-v-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Reporte enviado.</span>';
+      document.getElementById('mant-v-zona').value = '';
+      document.getElementById('mant-v-desc').value = '';
+    });
+}
+
+/* ---------------- PISCINA (vigilancia) ---------------- */
 function cargarPiscinaHoy() {
-  llamarAPI('getPiscinaHoy', { idUsuario: SESION.idUsuario })
+  llamarAPI('getAccesosPiscinaHoy', { idUsuario: SESION.idUsuario })
     .then(function (r) {
       const cont = document.getElementById('lista-piscina-hoy');
-      const items = r.solicitudes || [];
-      cont.innerHTML = items.length ? '' : '<p>No hay accesos programados para hoy.</p>';
-      items.forEach(function (p) {
-        cont.innerHTML += '<div class="item-lista">Apto ' + p.ID_Apto + ' — ' + p.Num_Acompanantes + ' acompañante(s)' +
-          (p.Hora_Ingreso ? ' <span class="badge ingreso">Ingresó ' + p.Hora_Ingreso + '</span>' :
-            '<br><button class="verde" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="marcarIngresoPiscinaUI(\'' + p.ID_Acceso + '\')">✅ Marcar ingreso</button>') +
-          '</div>';
+      const accesos = r.accesos || [];
+      cont.innerHTML = accesos.length ? '' : '<p>No hay accesos a la piscina programados para hoy.</p>';
+      accesos.forEach(function (a) {
+        cont.innerHTML += '<div class="item-lista"><b>Apto ' + a.ID_Apto + '</b>' +
+          (a.Num_Acompanantes ? ' — 👥 ' + a.Num_Acompanantes + ' acompañante(s)' : '') +
+          (a.Nombres_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Nombres_Acompanantes + '</span>' : '') +
+          '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoPiscinaUI(\'' + a.ID_Acceso + '\')">✅ Marcar ingreso</button></div>';
       });
     });
 }
@@ -581,47 +611,83 @@ function marcarIngresoPiscinaUI(idAcceso) {
     });
 }
 
-/* ---------------- MANTENIMIENTO (VIGILANCIA) ---------------- */
-function reportarMantenimientoVigUI() {
-  const zona = document.getElementById('mant-zona-vig').value.trim();
-  const descripcion = document.getElementById('mant-descripcion-vig').value.trim();
-  if (!zona || !descripcion) { alert('Completa todos los campos'); return; }
-
-  mostrarCargando(true);
-  llamarAPI('reportarMantenimiento', { idUsuario: SESION.idUsuario, zonaArea: zona, descripcion: descripcion })
-    .then(function () {
-      mostrarCargando(false);
-      document.getElementById('mant-resultado-vig').innerText = '✅ Reporte enviado.';
-      document.getElementById('mant-zona-vig').value = '';
-      document.getElementById('mant-descripcion-vig').value = '';
+/* ---------------- SOS (vigilancia) ---------------- */
+function cargarBannerSOS() {
+  llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const alertas = r.alertas || [];
+      const banner = document.getElementById('vig-banner-sos');
+      const badge = document.getElementById('badge-vig-sos');
+      if (!alertas.length) {
+        banner.innerHTML = '';
+        if (badge) badge.classList.add('oculto');
+        return;
+      }
+      banner.innerHTML = '<div class="banner-sos">🆘 ' + alertas.length + ' alerta(s) activa(s) — revisa la pestaña SOS</div>';
+      if (badge) { badge.innerText = alertas.length; badge.classList.remove('oculto'); }
     });
 }
 
-/* ---------------- ACTAS DE TURNO (VIGILANCIA) ---------------- */
+function cargarAlertasSOSVigilancia() {
+  llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-alertas-sos');
+      const alertas = r.alertas || [];
+      cont.innerHTML = alertas.length ? '' : '<p>No hay alertas activas. 👍</p>';
+      alertas.forEach(function (a) {
+        const fecha = a.Fecha_Hora ? new Date(a.Fecha_Hora).toLocaleString('es-CO') : '';
+        cont.innerHTML += '<div class="alerta-sos-item"><b>🆘 Apto ' + a.ID_Apto + '</b>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + fecha + '</span>' +
+          '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="atenderAlertaUI(\'' + a.ID_Alerta + '\')">Marcar como atendida</button></div>';
+      });
+      cargarBannerSOS();
+    });
+}
+
+function atenderAlertaUI(idAlerta) {
+  mostrarCargando(true);
+  llamarAPI('atenderAlertaSOS', { idUsuario: SESION.idUsuario, idAlerta: idAlerta })
+    .then(function () {
+      mostrarCargando(false);
+      cargarAlertasSOSVigilancia();
+    });
+}
+
+/* ---------------- ACTAS DE VIGILANCIA ---------------- */
 function crearActaUI() {
-  const turno = document.getElementById('acta-turno').value;
-  const observaciones = document.getElementById('acta-observaciones').value.trim();
-  if (!observaciones) { alert('Escribe las observaciones del turno'); return; }
+  const datos = {
+    idUsuario: SESION.idUsuario,
+    turno: document.getElementById('acta-turno').value,
+    guardiaEntrega: document.getElementById('acta-guardia-entrega').value.trim(),
+    guardiaRecibe: document.getElementById('acta-guardia-recibe').value.trim(),
+    observaciones: document.getElementById('acta-observaciones').value.trim()
+  };
+  if (!datos.guardiaEntrega) { alert('Ingresa el nombre de quien entrega el turno'); return; }
 
   mostrarCargando(true);
-  llamarAPI('crearActaTurno', { idUsuario: SESION.idUsuario, turno: turno, observaciones: observaciones })
-    .then(function () {
-      mostrarCargando(false);
-      document.getElementById('acta-resultado').innerText = '✅ Turno cerrado correctamente.';
-      document.getElementById('acta-observaciones').value = '';
-      cargarUltimasActas();
-    });
+  llamarAPI('crearActaVigilancia', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('acta-resultado');
+    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Acta registrada.</span>';
+    document.getElementById('acta-guardia-entrega').value = '';
+    document.getElementById('acta-guardia-recibe').value = '';
+    document.getElementById('acta-observaciones').value = '';
+    cargarActasVigilancia();
+  });
 }
 
-function cargarUltimasActas() {
-  llamarAPI('getUltimasActas', { idUsuario: SESION.idUsuario })
+function cargarActasVigilancia() {
+  llamarAPI('getActasVigilancia', { idUsuario: SESION.idUsuario })
     .then(function (r) {
       const cont = document.getElementById('lista-actas');
-      const actas = r.actas || [];
+      const actas = (r.actas || []).slice(0, 10);
       cont.innerHTML = actas.length ? '' : '<p>No hay actas registradas.</p>';
       actas.forEach(function (a) {
         cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + a.Fecha +
-          '<br>' + a.Observaciones + '</div>';
+          '<br><span style="font-size:13px; color:var(--texto-suave);">Entrega: ' + a.Guardia_Entrega + (a.Guardia_Recibe ? ' → Recibe: ' + a.Guardia_Recibe : '') + '</span>' +
+          (a.Observaciones ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Observaciones + '</span>' : '') +
+          '</div>';
       });
     });
 }
@@ -632,16 +698,24 @@ function iniciarAdmin() {
   cargarDashboardAdmin();
 }
 
-function mostrarPanelAdmin(panel, btn) {
-  ['inicio', 'pagos', 'aprobaciones', 'comunicados', 'pqrs'].forEach(function (p) {
-    document.getElementById('admin-panel-' + p).classList.toggle('oculto', p !== panel);
-  });
-  document.querySelectorAll('#vista-admin .tab-btn').forEach(function (b) { b.classList.remove('activo'); });
-  btn.classList.add('activo');
+function mostrarPanelAdmin(panel) {
+  document.getElementById('admin-panel-' + panel).classList.remove('oculto');
   if (panel === 'pagos') cargarPagosPendientesUI();
   if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
-  if (panel === 'comunicados') cargarComunicadosAdmin();
+  if (panel === 'anuncios') cargarComunicadosAdmin();
+  if (panel === 'zonas') { cargarZonasAdmin(); cargarReservasPendientesAdmin(); }
+  if (panel === 'guardas') { cargarGuardias(); cargarActasAdmin(); }
+  if (panel === 'multas') { cargarApartamentosSelect(); cargarMultasAdmin(); }
   if (panel === 'pqrs') cargarPQRSAdmin();
+  if (panel === 'mantenimiento') cargarMantenimientoAdmin();
+  if (panel === 'sos') cargarAlertasSOSAdmin();
+}
+
+function cerrarModuloAdmin() {
+  ['pagos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
+    document.getElementById('admin-panel-' + p).classList.add('oculto');
+  });
+  cargarDashboardAdmin();
 }
 
 function cargarDashboardAdmin() {
@@ -651,7 +725,20 @@ function cargarDashboardAdmin() {
       document.getElementById('admin-count-pagos').innerText = d.pagosPendientes;
       document.getElementById('admin-count-novedades').innerText = d.novedadesAbiertas;
       document.getElementById('admin-count-pqrs').innerText = d.pqrsAbiertos;
+      ponerBadge('badge-admin-pagos', d.pagosPendientes);
+      ponerBadge('badge-admin-pqrs', d.pqrsAbiertos);
     });
+  llamarAPI('getUsuariosPendientes', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-admin-aprobaciones', (r.usuarios || []).length); });
+  llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
+    .then(function (r) { ponerBadge('badge-admin-sos', (r.alertas || []).length); });
+}
+
+function ponerBadge(idBadge, cantidad) {
+  const el = document.getElementById(idBadge);
+  if (!el) return;
+  if (cantidad > 0) { el.innerText = cantidad; el.classList.remove('oculto'); }
+  else { el.classList.add('oculto'); }
 }
 
 function cargarPagosPendientesUI() {
@@ -667,50 +754,6 @@ function cargarPagosPendientesUI() {
           '<br><button class="verde" style="margin-top:6px;" onclick="validarPagoUI(\'' + p.ID_Pago + '\', \'Validado\')">✅ Validar</button>' +
           '<button class="rojo" onclick="validarPagoUI(\'' + p.ID_Pago + '\', \'Rechazado\')">❌ Rechazar</button></div>';
       });
-    });
-  cargarMultasAdmin();
-}
-
-/* ---------------- MULTAS (ADMIN) ---------------- */
-function crearMultaUI() {
-  const idApto = document.getElementById('multa-apto').value.trim();
-  const motivo = document.getElementById('multa-motivo').value.trim();
-  const valor = document.getElementById('multa-valor').value;
-  if (!idApto || !motivo || !valor) { alert('Completa todos los campos'); return; }
-
-  mostrarCargando(true);
-  llamarAPI('crearMulta', { idUsuario: SESION.idUsuario, idApto: idApto, motivo: motivo, valor: valor })
-    .then(function () {
-      mostrarCargando(false);
-      document.getElementById('multa-resultado').innerText = '✅ Multa creada.';
-      document.getElementById('multa-motivo').value = '';
-      document.getElementById('multa-valor').value = '';
-      cargarMultasAdmin();
-    });
-}
-
-function cargarMultasAdmin() {
-  llamarAPI('getMultas', { idUsuario: SESION.idUsuario })
-    .then(function (r) {
-      const cont = document.getElementById('lista-multas-admin');
-      const multas = r.multas || [];
-      cont.innerHTML = multas.length ? '' : '<p>No hay multas registradas.</p>';
-      multas.forEach(function (m) {
-        const clase = m.Estado === 'Pagada' ? 'ingreso' : (m.Estado === 'Apelada' ? 'pendiente' : 'rechazado');
-        cont.innerHTML += '<div class="item-lista">Apto ' + m.ID_Apto + ' — ' + m.Motivo + ' — $' + Number(m.Valor).toLocaleString('es-CO') +
-          ' <span class="badge ' + clase + '">' + m.Estado + '</span>' +
-          (m.Estado !== 'Pagada' ? '<br><button class="verde" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMultaUI(\'' + m.ID_Multa + '\', \'Pagada\')">Marcar pagada</button>' : '') +
-          '</div>';
-      });
-    });
-}
-
-function actualizarEstadoMultaUI(idMulta, nuevoEstado) {
-  mostrarCargando(true);
-  llamarAPI('actualizarEstadoMulta', { idUsuario: SESION.idUsuario, idMulta: idMulta, nuevoEstado: nuevoEstado })
-    .then(function () {
-      mostrarCargando(false);
-      cargarMultasAdmin();
     });
 }
 
@@ -760,108 +803,384 @@ function rechazarUsuarioUI(idUsuarioObjetivo) {
     });
 }
 
-/* ---------------- COMUNICADOS (ADMIN) ---------------- */
+/* ---------------- ADMIN · COMUNICADOS ---------------- */
 function publicarComunicadoUI() {
-  const titulo = document.getElementById('com-titulo').value.trim();
-  const contenido = document.getElementById('com-contenido').value.trim();
-  const expiracion = document.getElementById('com-expiracion').value;
-  const dirigidoA = document.getElementById('com-dirigido').value;
-  if (!titulo || !contenido) { alert('Completa título y contenido'); return; }
+  const titulo = document.getElementById('an-titulo').value.trim();
+  const contenido = document.getElementById('an-contenido').value.trim();
+  const dirigidoA = document.getElementById('an-dirigido').value;
+  const fechaExpiracion = document.getElementById('an-expiracion').value;
+  const archivo = document.getElementById('an-imagen').files[0];
+  if (!titulo || !contenido) { alert('Completa el título y el mensaje'); return; }
 
-  mostrarCargando(true);
-  llamarAPI('publicarComunicado', {
-    idUsuario: SESION.idUsuario, titulo: titulo, contenido: contenido,
-    fechaExpiracion: expiracion, dirigidoA: dirigidoA
-  }).then(function () {
-    mostrarCargando(false);
-    document.getElementById('com-resultado').innerText = '✅ Aviso publicado.';
-    document.getElementById('com-titulo').value = '';
-    document.getElementById('com-contenido').value = '';
-    cargarComunicadosAdmin();
-  });
+  function enviar(base64, nombreArchivo, mimeType) {
+    mostrarCargando(true);
+    llamarAPI('crearComunicado', {
+      idUsuario: SESION.idUsuario, titulo: titulo, contenido: contenido,
+      dirigidoA: dirigidoA, fechaExpiracion: fechaExpiracion,
+      base64: base64 || '', nombreArchivo: nombreArchivo || '', mimeType: mimeType || ''
+    }).then(function (r) {
+      mostrarCargando(false);
+      const el = document.getElementById('an-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Comunicado publicado.</span>';
+      document.getElementById('an-titulo').value = '';
+      document.getElementById('an-contenido').value = '';
+      document.getElementById('an-expiracion').value = '';
+      document.getElementById('an-imagen').value = '';
+      cargarComunicadosAdmin();
+    });
+  }
+
+  if (archivo) {
+    const lector = new FileReader();
+    lector.onload = function () {
+      enviar(lector.result.split(',')[1], archivo.name, archivo.type);
+    };
+    lector.readAsDataURL(archivo);
+  } else {
+    enviar();
+  }
 }
 
 function cargarComunicadosAdmin() {
-  llamarAPI('getComunicadosActivos', { idUsuario: SESION.idUsuario })
+  llamarAPI('getTodosComunicados', { idUsuario: SESION.idUsuario })
     .then(function (r) {
       const cont = document.getElementById('lista-comunicados-admin');
-      const avisos = r.comunicados || [];
-      cont.innerHTML = avisos.length ? '' : '<p>No hay avisos activos.</p>';
-      avisos.forEach(function (a) {
-        cont.innerHTML += '<div class="item-lista"><b>' + a.Titulo + '</b><br>' + a.Contenido +
-          '<br><span style="color:var(--texto-suave); font-size:12px;">' + a.Fecha_Publicacion + ' · ' + a.Dirigido_A + '</span>' +
-          '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="eliminarComunicadoUI(\'' + a.ID_Comunicado + '\')">Eliminar</button></div>';
+      const comunicados = r.comunicados || [];
+      cont.innerHTML = comunicados.length ? '' : '<p>No hay comunicados publicados todavía.</p>';
+      const hoy = new Date().setHours(0, 0, 0, 0);
+      comunicados.forEach(function (c) {
+        const vigente = !c.Fecha_Expiracion || new Date(c.Fecha_Expiracion).setHours(0, 0, 0, 0) >= hoy;
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + c.Titulo + '</b> <span class="badge ' + (vigente ? 'autorizado' : 'no-autorizado') + '">' + (vigente ? 'Publicado' : 'Vencido') + '</span>' +
+          ' <span class="badge pendiente">' + (c.Dirigido_A || 'Todos') + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Contenido + '</span>' +
+          (c.Adjunto_URL ? '<img class="miniatura-aviso" src="' + c.Adjunto_URL + '">' : '') +
+          (vigente ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="retirarComunicadoUI(\'' + c.ID_Comunicado + '\')">Retirar</button>' : '') +
+          '</div>';
       });
     });
 }
 
-function eliminarComunicadoUI(idComunicado) {
-  if (!confirm('¿Eliminar este aviso?')) return;
+function retirarComunicadoUI(idComunicado) {
+  if (!confirm('¿Retirar este comunicado? Dejará de verse para residentes y vigilancia.')) return;
   mostrarCargando(true);
-  llamarAPI('eliminarComunicado', { idUsuario: SESION.idUsuario, idComunicado: idComunicado })
+  llamarAPI('retirarComunicado', { idUsuario: SESION.idUsuario, idComunicado: idComunicado })
     .then(function () {
       mostrarCargando(false);
       cargarComunicadosAdmin();
     });
 }
 
-/* ---------------- PQRS (ADMIN) ---------------- */
-function cargarPQRSAdmin() {
-  llamarAPI('getPQRSAbiertos', { idUsuario: SESION.idUsuario })
+/* ---------------- ADMIN · ZONAS COMUNES ---------------- */
+function cargarZonasAdmin() {
+  llamarAPI('getZonasComunes', { idUsuario: SESION.idUsuario })
     .then(function (r) {
-      const cont = document.getElementById('lista-pqrs-admin');
-      const items = r.pqrs || [];
-      cont.innerHTML = items.length ? '' : '<p>No hay PQRS pendientes 🎉</p>';
-      items.forEach(function (p) {
+      const cont = document.getElementById('lista-zonas-admin');
+      const zonas = r.zonas || [];
+      cont.innerHTML = zonas.length ? '' : '<p>No hay zonas comunes registradas.</p>';
+      zonas.forEach(function (z) {
+        const requiereAprobacion = String(z.Requiere_Aprobacion).trim().toLowerCase() === 'si';
         cont.innerHTML += '<div class="item-lista">' +
-          '<b>' + p.Tipo + '</b> — Apto ' + p.ID_Apto + ' — ' + p.Fecha +
-          '<br>' + p.Descripcion +
-          '<br><textarea id="resp-' + p.ID_PQRS + '" placeholder="Escribe tu respuesta..." rows="2" style="margin-top:8px;"></textarea>' +
-          '<button class="verde" style="width:auto; padding:8px 14px;" onclick="responderPQRSUI(\'' + p.ID_PQRS + '\')">Responder y cerrar</button>' +
+          '<b>🌳 ' + z.Nombre + '</b>' +
+          (requiereAprobacion ? ' <span class="badge pendiente">Requiere aprobación</span>' : ' <span class="badge autorizado">Reserva directa</span>') +
+          (z.Capacidad ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 Capacidad: ' + z.Capacidad + '</span>' : '') +
+          (z.Horario_Disponible ? '<br><span style="font-size:13px; color:var(--texto-suave);">🕒 ' + z.Horario_Disponible + '</span>' : '') +
+          (z.Costo ? '<br><span style="font-size:13px; color:var(--texto-suave);">💲 Costo: $' + z.Costo + '</span>' : '') +
           '</div>';
       });
     });
-  cargarMantenimientoAdmin();
 }
 
-/* ---------------- MANTENIMIENTO (ADMIN) ---------------- */
-function cargarMantenimientoAdmin() {
-  llamarAPI('getMantenimientos', { idUsuario: SESION.idUsuario })
+function crearZonaUI() {
+  const datos = {
+    idUsuario: SESION.idUsuario,
+    nombre: document.getElementById('zc-nombre').value.trim(),
+    capacidad: document.getElementById('zc-capacidad').value.trim(),
+    costo: document.getElementById('zc-costo').value.trim(),
+    horario: document.getElementById('zc-horario').value.trim(),
+    requiereAprobacion: document.getElementById('zc-requiere-aprobacion').checked
+  };
+  if (!datos.nombre) { alert('Ingresa el nombre de la zona'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('crearZonaComun', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('zc-resultado');
+    if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Zona creada.</span>';
+    ['zc-nombre', 'zc-capacidad', 'zc-costo', 'zc-horario'].forEach(function (id) {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('zc-requiere-aprobacion').checked = false;
+    cargarZonasAdmin();
+  });
+}
+
+/* ---------------- ADMIN · RESERVAS PENDIENTES DE APROBACIÓN ---------------- */
+function cargarReservasPendientesAdmin() {
+  llamarAPI('getReservasPendientes', { idUsuario: SESION.idUsuario })
     .then(function (r) {
-      const cont = document.getElementById('lista-mantenimiento-admin');
-      const items = r.mantenimientos || [];
-      cont.innerHTML = items.length ? '' : '<p>No hay reportes de mantenimiento.</p>';
-      items.forEach(function (m) {
-        const clase = m.Estado === 'Resuelto' ? 'ingreso' : (m.Estado === 'En proceso' ? 'pendiente' : 'rechazado');
-        cont.innerHTML += '<div class="item-lista"><b>' + m.Zona_Area + '</b> ' +
-          '<span class="badge ' + clase + '">' + m.Estado + '</span>' +
-          '<br>' + m.Descripcion + ' — ' + m.Fecha_Reporte +
-          (m.Estado !== 'Resuelto' ?
-            '<br><button class="secundario" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'En proceso\')">En proceso</button> ' +
-            '<button class="verde" style="width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'Resuelto\')">Marcar resuelto</button>'
+      const cont = document.getElementById('lista-reservas-pendientes');
+      const reservas = r.reservas || [];
+      cont.innerHTML = reservas.length ? '' : '<p>No hay reservas pendientes.</p>';
+      reservas.forEach(function (res) {
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + res.Nombre_Zona + '</b> — Apto ' + res.ID_Apto + '<br>' +
+          res.Fecha + ' (' + res.Hora_Inicio + ' - ' + res.Hora_Fin + ')' +
+          '<br><button style="margin-top:8px; width:auto; padding:8px 14px;" onclick="resolverReservaUI(\'' + res.ID_Reserva + '\', \'Confirmada\')">Aprobar</button> ' +
+          '<button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="resolverReservaUI(\'' + res.ID_Reserva + '\', \'Rechazada\')">Rechazar</button>' +
+          '</div>';
+      });
+    });
+}
+
+function resolverReservaUI(idReserva, nuevoEstado) {
+  mostrarCargando(true);
+  llamarAPI('resolverReserva', { idUsuario: SESION.idUsuario, idReserva: idReserva, nuevoEstado: nuevoEstado })
+    .then(function () {
+      mostrarCargando(false);
+      cargarReservasPendientesAdmin();
+    });
+}
+
+/* ---------------- ADMIN · GUARDAS DE SEGURIDAD ---------------- */
+function cargarGuardias() {
+  llamarAPI('getGuardias', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-guardias');
+      const guardias = r.guardias || [];
+      cont.innerHTML = guardias.length ? '' : '<p>No hay guardias registrados aún.</p>';
+      guardias.forEach(function (g) {
+        const activo = String(g.Activo).trim().toLowerCase() === 'si';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + g.Nombre + '</b> <span class="badge ' + (activo ? 'autorizado' : 'no-autorizado') + '">' + (activo ? 'Activo' : 'Inactivo') + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + g.Email + '</span>' +
+          '<br><button class="secundario" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="toggleGuardiaUI(\'' + g.ID_Usuario + '\')">' + (activo ? 'Desactivar' : 'Activar') + '</button>' +
+          '</div>';
+      });
+    });
+}
+
+function crearGuardiaUI() {
+  const datos = {
+    idUsuario: SESION.idUsuario,
+    nombres: document.getElementById('gu-nombres').value.trim(),
+    apellidos: document.getElementById('gu-apellidos').value.trim(),
+    email: document.getElementById('gu-email').value.trim(),
+    telefono: document.getElementById('gu-telefono').value.trim(),
+    numeroDocumento: document.getElementById('gu-documento').value.trim()
+  };
+  if (!datos.nombres || !datos.apellidos || !datos.email) { alert('Completa nombre, apellido y correo'); return; }
+
+  mostrarCargando(true);
+  llamarAPI('crearUsuarioVigilancia', datos).then(function (r) {
+    mostrarCargando(false);
+    const el = document.getElementById('gu-resultado');
+    el.innerHTML = r.ok
+      ? '<span style="color:var(--verde-oscuro)">✅ ' + r.mensaje + '</span>'
+      : '<span style="color:var(--rojo)">❌ ' + r.mensaje + '</span>';
+    if (r.ok) {
+      ['gu-nombres', 'gu-apellidos', 'gu-email', 'gu-telefono', 'gu-documento'].forEach(function (id) {
+        document.getElementById(id).value = '';
+      });
+      cargarGuardias();
+    }
+  });
+}
+
+function toggleGuardiaUI(idUsuarioObjetivo) {
+  mostrarCargando(true);
+  llamarAPI('desactivarGuardia', { idUsuario: SESION.idUsuario, idUsuarioObjetivo: idUsuarioObjetivo })
+    .then(function () {
+      mostrarCargando(false);
+      cargarGuardias();
+    });
+}
+
+/* ---------------- ADMIN · ACTAS DE VIGILANCIA (solo lectura) ---------------- */
+function cargarActasAdmin() {
+  llamarAPI('getActasVigilancia', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-actas-admin');
+      const actas = (r.actas || []).slice(0, 15);
+      cont.innerHTML = actas.length ? '' : '<p>No hay actas registradas todavía.</p>';
+      actas.forEach(function (a) {
+        cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + a.Fecha +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">Entrega: ' + a.Guardia_Entrega + (a.Guardia_Recibe ? ' → Recibe: ' + a.Guardia_Recibe : '') + '</span>' +
+          (a.Observaciones ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Observaciones + '</span>' : '') +
+          '</div>';
+      });
+    });
+}
+
+/* ---------------- ADMIN · MULTAS ---------------- */
+function cargarApartamentosSelect() {
+  const select = document.getElementById('mu-apto');
+  if (select.options.length) return; // ya está cargado, evita repetir la llamada
+  llamarAPI('getApartamentos', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const apartamentos = r.apartamentos || [];
+      select.innerHTML = '';
+      apartamentos.forEach(function (a) {
+        const opt = document.createElement('option');
+        opt.value = a.ID_Apto;
+        opt.textContent = a.ID_Apto + (a.Numero ? ' (Apto ' + a.Numero + ')' : '');
+        select.appendChild(opt);
+      });
+    });
+}
+
+function crearMultaUI() {
+  const idApto = document.getElementById('mu-apto').value;
+  const motivo = document.getElementById('mu-motivo').value.trim();
+  const valor = document.getElementById('mu-valor').value;
+  const archivo = document.getElementById('mu-evidencia').files[0];
+  if (!idApto || !motivo || !valor) { alert('Completa el apartamento, el motivo y el valor'); return; }
+
+  function enviar(base64, nombreArchivo, mimeType) {
+    mostrarCargando(true);
+    llamarAPI('crearMulta', {
+      idUsuario: SESION.idUsuario, idApto: idApto, motivo: motivo, valor: valor,
+      base64: base64 || '', nombreArchivo: nombreArchivo || '', mimeType: mimeType || ''
+    }).then(function (r) {
+      mostrarCargando(false);
+      const el = document.getElementById('mu-resultado');
+      if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
+      el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Multa registrada.</span>';
+      document.getElementById('mu-motivo').value = '';
+      document.getElementById('mu-valor').value = '';
+      document.getElementById('mu-evidencia').value = '';
+      cargarMultasAdmin();
+    });
+  }
+
+  if (archivo) {
+    const lector = new FileReader();
+    lector.onload = function () { enviar(lector.result.split(',')[1], archivo.name, archivo.type); };
+    lector.readAsDataURL(archivo);
+  } else {
+    enviar();
+  }
+}
+
+function cargarMultasAdmin() {
+  llamarAPI('getTodasMultas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-multas-admin');
+      const multas = r.multas || [];
+      cont.innerHTML = multas.length ? '' : '<p>No hay multas registradas.</p>';
+      multas.forEach(function (m) {
+        const clase = m.Estado === 'Pagada' ? 'validado' : (m.Estado === 'Anulada' ? 'rechazado' : 'pendiente');
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>Apto ' + m.ID_Apto + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + m.Motivo + ' — $' + m.Valor + ' — ' + m.Fecha + '</span>' +
+          (m.Evidencia_URL ? '<br><a href="' + m.Evidencia_URL + '" target="_blank" style="font-size:13px; color:var(--verde-oscuro);">Ver evidencia</a>' : '') +
+          (m.Estado === 'Pendiente'
+            ? '<br><button class="verde" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMultaUI(\'' + m.ID_Multa + '\', \'Pagada\')">Marcar pagada</button> ' +
+              '<button class="rojo" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMultaUI(\'' + m.ID_Multa + '\', \'Anulada\')">Anular</button>'
             : '') +
           '</div>';
       });
     });
 }
 
-function actualizarEstadoMantenimientoUI(idMantenimiento, nuevoEstado) {
+function actualizarEstadoMultaUI(idMulta, estado) {
   mostrarCargando(true);
-  llamarAPI('actualizarEstadoMantenimiento', { idUsuario: SESION.idUsuario, idMantenimiento: idMantenimiento, nuevoEstado: nuevoEstado })
+  llamarAPI('actualizarEstadoMulta', { idUsuario: SESION.idUsuario, idMulta: idMulta, estado: estado })
+    .then(function () {
+      mostrarCargando(false);
+      cargarMultasAdmin();
+    });
+}
+
+/* ---------------- ADMIN · PQRS ---------------- */
+function cargarPQRSAdmin() {
+  llamarAPI('getTodasPQRS', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-pqrs-admin');
+      const pqrs = r.pqrs || [];
+      cont.innerHTML = pqrs.length ? '' : '<p>No hay PQRS radicados.</p>';
+      pqrs.forEach(function (p) {
+        const clase = p.Estado === 'Cerrado' ? 'validado' : 'pendiente';
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + p.Tipo + '</b> <span class="badge ' + clase + '">' + p.Estado + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">Apto ' + p.ID_Apto + ' — ' + p.Fecha + '</span>' +
+          '<br><span style="font-size:13px;">' + p.Descripcion + '</span>' +
+          (p.Respuesta
+            ? '<br><div style="margin-top:6px; padding:8px 10px; background:var(--verde-claro); border-radius:8px; font-size:13px;"><b>Respuesta:</b> ' + p.Respuesta + '</div>'
+            : '<div style="margin-top:8px;">' +
+              '<textarea id="pqrs-resp-' + p.ID_PQRS + '" placeholder="Escribe una respuesta" rows="2"></textarea>' +
+              '<button style="margin-top:4px; width:auto; padding:8px 14px;" onclick="responderPQRSUI(\'' + p.ID_PQRS + '\')">Responder y cerrar</button>' +
+              '</div>') +
+          '</div>';
+      });
+    });
+}
+
+function responderPQRSUI(idPQRS) {
+  const respuesta = document.getElementById('pqrs-resp-' + idPQRS).value.trim();
+  if (!respuesta) { alert('Escribe una respuesta'); return; }
+  mostrarCargando(true);
+  llamarAPI('responderPQRS', { idUsuario: SESION.idUsuario, idPQRS: idPQRS, respuesta: respuesta, estado: 'Cerrado' })
+    .then(function () {
+      mostrarCargando(false);
+      cargarPQRSAdmin();
+    });
+}
+
+/* ---------------- ADMIN · MANTENIMIENTO ---------------- */
+function cargarMantenimientoAdmin() {
+  llamarAPI('getMantenimiento', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-mantenimiento-admin');
+      const reportes = r.reportes || [];
+      cont.innerHTML = reportes.length ? '' : '<p>No hay reportes de mantenimiento.</p>';
+      reportes.forEach(function (m) {
+        const clase = m.Estado === 'Resuelto' ? 'validado' : (m.Estado === 'En proceso' ? 'pendiente' : 'no-autorizado');
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + m.Zona_Area + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + m.Descripcion + '</span>' +
+          '<br><span style="font-size:12px; color:var(--texto-suave);">Reportado: ' + m.Fecha_Reporte + '</span>' +
+          (m.Estado !== 'Resuelto'
+            ? '<br><button style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'En proceso\')">En proceso</button> ' +
+              '<button class="verde" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'Resuelto\')">Marcar resuelto</button>'
+            : '') +
+          '</div>';
+      });
+    });
+}
+
+function actualizarEstadoMantenimientoUI(idMantenimiento, estado) {
+  mostrarCargando(true);
+  llamarAPI('actualizarEstadoMantenimiento', { idUsuario: SESION.idUsuario, idMantenimiento: idMantenimiento, estado: estado })
     .then(function () {
       mostrarCargando(false);
       cargarMantenimientoAdmin();
     });
 }
 
-function responderPQRSUI(idPQRS) {
-  const respuesta = document.getElementById('resp-' + idPQRS).value.trim();
-  if (!respuesta) { alert('Escribe una respuesta'); return; }
+/* ---------------- ADMIN · SOS ---------------- */
+function cargarAlertasSOSAdmin() {
+  llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-alertas-sos-admin');
+      const alertas = r.alertas || [];
+      cont.innerHTML = alertas.length ? '' : '<p>No hay alertas activas. 👍</p>';
+      alertas.forEach(function (a) {
+        const fecha = a.Fecha_Hora ? new Date(a.Fecha_Hora).toLocaleString('es-CO') : '';
+        cont.innerHTML += '<div class="alerta-sos-item"><b>🆘 Apto ' + a.ID_Apto + '</b>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + fecha + '</span>' +
+          '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="atenderAlertaAdminUI(\'' + a.ID_Alerta + '\')">Marcar como atendida</button></div>';
+      });
+    });
+}
+
+function atenderAlertaAdminUI(idAlerta) {
   mostrarCargando(true);
-  llamarAPI('responderPQRS', { idUsuario: SESION.idUsuario, idPQRS: idPQRS, respuesta: respuesta })
+  llamarAPI('atenderAlertaSOS', { idUsuario: SESION.idUsuario, idAlerta: idAlerta })
     .then(function () {
       mostrarCargando(false);
-      cargarPQRSAdmin();
-      cargarDashboardAdmin();
+      cargarAlertasSOSAdmin();
     });
 }
