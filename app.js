@@ -1744,9 +1744,14 @@ function actualizarEstadoEscaneo(texto, esError) {
   el.style.color = esError ? '#f87171' : '#22c55e';
 }
 
+// Intervalo corto a propósito: esto es una entrada vehicular, no puede
+// haber trancón esperando al OCR. El worker de Tesseract se reutiliza
+// (ver prepararWorkerPlaca) y el flag `escaneandoPlaca` evita que se
+// encimen lecturas, así que un intervalo agresivo es seguro: si un
+// ciclo tarda más de 700ms, el siguiente simplemente se salta.
 function iniciarEscaneoAutomaticoPlaca() {
   actualizarEstadoEscaneo('🔍 Encuadre la placa dentro del recuadro verde', false);
-  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1500);
+  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 700);
 }
 
 // Se ejecuta periódicamente mientras la cámara está activa. Recorta el
@@ -1774,25 +1779,31 @@ function analizarFotogramaPlaca() {
     const sh = vh * (GUIA_PLACA.bottom - GUIA_PLACA.top);
 
     // Escala hacia arriba para que el texto recortado quede con buen
-    // tamaño para el OCR, sin importar qué tan lejos esté el vehículo.
-    const escala = Math.max(1, 700 / sw);
+    // tamaño para el OCR. Objetivo más grande (900px en vez de 700px)
+    // para compensar vehículos lejanos, donde la placa ocupa muy pocos
+    // píxeles reales dentro del recorte: entre más pequeña llega, más
+    // hace falta ampliarla para que Tesseract distinga los caracteres.
+    const escala = Math.max(1, 900 / sw);
     canvas.width = Math.round(sw * escala);
     canvas.height = Math.round(sh * escala);
 
     const ctx = canvas.getContext('2d');
-    ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
+    ctx.filter = 'grayscale(1) contrast(1.5) brightness(1.08)';
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
 
     workerPlaca.recognize(canvas)
       .then(function (resultado) {
         const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const confianza = resultado.data.confidence || 0;
         const match = texto.match(REGEX_PLACA);
         if (match) {
-          // Exige ver la MISMA placa en dos lecturas seguidas antes de
-          // darla por buena — filtra la mayoría de los errores de OCR
+          // Si el OCR está muy seguro de la lectura, la aceptamos de
+          // una sola vez — clave para no hacer esperar al vehículo en
+          // la entrada. Con confianza baja/media sí exigimos ver la
+          // MISMA placa en dos lecturas seguidas, para filtrar errores
           // de una sola pasada (letras/números confundidos al vuelo).
-          if (ultimaCandidataPlaca === match[0]) {
+          if (confianza >= 75 || ultimaCandidataPlaca === match[0]) {
             actualizarEstadoEscaneo('✅ Placa confirmada: ' + match[0], false);
             document.getElementById('placa-buscar-input').value = match[0];
             ultimaCandidataPlaca = null;
@@ -1804,7 +1815,7 @@ function analizarFotogramaPlaca() {
           }
         } else {
           ultimaCandidataPlaca = null;
-          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' encuadre la placa en el recuadro verde'), false);
+          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' acerque el vehículo o encuadre mejor la placa'), false);
         }
       })
       .catch(function (err) {
