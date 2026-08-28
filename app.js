@@ -202,10 +202,10 @@ function renderComunicadoSlide(contenedorId) {
   const c = st.lista[st.idx];
   const fecha = c.Fecha_Publicacion ? new Date(c.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
   const driveId = extraerDriveId(c.Adjunto_URL);
-  
+
   // URL directa de CDN de Google que carga 100% confiable en <img>
-  const imgSrc = driveId 
-    ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') 
+  const imgSrc = driveId
+    ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000')
     : c.Adjunto_URL;
 
   let navHtml = '';
@@ -231,7 +231,7 @@ function renderComunicadoSlide(contenedorId) {
   if (c.Adjunto_URL) {
     const fallbackSrc = driveId ? ('https://drive.google.com/thumbnail?id=' + driveId + '&sz=w1000') : c.Adjunto_URL;
     imgTag = `
-      <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}" 
+      <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}"
         onerror="this.onerror=null; this.src='${fallbackSrc}';">
     `;
   }
@@ -1544,7 +1544,7 @@ function cargarApartamentosCargosSelect() {
     .then(function (r) {
       const apartamentos = r.apartamentos || [];
       select.innerHTML = '';
-      
+
       const optTodos = document.createElement('option');
       optTodos.value = 'TODOS';
       optTodos.textContent = '📢 TODOS LOS APARTAMENTOS (Asignación Masiva)';
@@ -1621,6 +1621,13 @@ let ultimaCandidataPlaca = null;
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
 const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
 
+// Recuadro guía (en % del ancho/alto del video): define la ÚNICA zona
+// donde debe quedar encuadrada la placa. Es exactamente la misma zona
+// que luego se recorta para enviarla al OCR — así lo que el usuario ve
+// encuadrado en pantalla es literalmente lo único que Tesseract analiza,
+// en vez de todo el cuadro (techo, mano, fondo, etc.).
+const GUIA_PLACA = { left: 0.12, right: 0.88, top: 0.35, bottom: 0.65 };
+
 function toggleCamaraPlaca() {
   const container = document.getElementById('camara-container');
   const video = document.getElementById('video-camara');
@@ -1645,7 +1652,10 @@ function toggleCamaraPlaca() {
   }).then(function (stream) {
     streamCamara = stream;
     video.srcObject = stream;
+    video.style.objectFit = 'cover';
     container.classList.remove('oculto');
+    container.style.position = 'relative';
+    asegurarGuiaPlaca();
     actualizarEstadoEscaneo('⏳ Cargando motor de lectura...', false);
     return prepararWorkerPlaca();
   }).then(function () {
@@ -1659,6 +1669,30 @@ function toggleCamaraPlaca() {
   });
 }
 
+// Dibuja el recuadro guía verde sobre el contenedor de la cámara, con
+// una máscara oscura alrededor para que sea obvio dónde encuadrar.
+// Solo se crea una vez; se reutiliza mientras la cámara esté activa.
+function asegurarGuiaPlaca() {
+  const container = document.getElementById('camara-container');
+  if (!container || document.getElementById('guia-placa')) return;
+  const guia = document.createElement('div');
+  guia.id = 'guia-placa';
+  guia.style.cssText =
+    'position:absolute;' +
+    'left:' + (GUIA_PLACA.left * 100) + '%;' +
+    'right:' + ((1 - GUIA_PLACA.right) * 100) + '%;' +
+    'top:' + (GUIA_PLACA.top * 100) + '%;' +
+    'bottom:' + ((1 - GUIA_PLACA.bottom) * 100) + '%;' +
+    'border:3px solid #22c55e; border-radius:10px; pointer-events:none;' +
+    'box-shadow:0 0 0 9999px rgba(0,0,0,0.45); z-index:5;';
+  container.appendChild(guia);
+}
+
+function quitarGuiaPlaca() {
+  const guia = document.getElementById('guia-placa');
+  if (guia) guia.remove();
+}
+
 // Crea el worker de Tesseract UNA sola vez y lo reutiliza en cada foto:
 // crear un worker nuevo por cuadro es lento y es lo que suele hacer que
 // el escaneo "se cuelgue" sin avisar nada al usuario.
@@ -1669,11 +1703,12 @@ function prepararWorkerPlaca() {
       workerPlaca = w;
       return w.setParameters({
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-        // "Sparse text": busca palabras sueltas en cualquier parte de la
-        // imagen, sin asumir que es un documento con párrafos — mucho
-        // más apropiado para una placa suelta en medio de un fondo con
-        // ruido (estantes, techo, etc.) que el modo automático por defecto.
-        tessedit_pageseg_mode: '11'
+        // '7' = tratar la imagen como una única línea de texto. Ahora
+        // que recortamos el canvas exactamente a la guía verde, la
+        // placa siempre ocupa una sola línea, así que este modo es
+        // mucho más preciso que "sparse text" (modo '11'), que buscaba
+        // palabras sueltas en cualquier parte del cuadro completo.
+        tessedit_pageseg_mode: '7'
       });
     })
     .then(function () { workerPlacaListo = true; });
@@ -1692,6 +1727,7 @@ function detenerCamaraPlaca() {
   }
   const container = document.getElementById('camara-container');
   if (container) container.classList.add('oculto');
+  quitarGuiaPlaca();
   actualizarEstadoEscaneo('', false);
 }
 
@@ -1703,15 +1739,17 @@ function actualizarEstadoEscaneo(texto, esError) {
 }
 
 function iniciarEscaneoAutomaticoPlaca() {
-  actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo', false);
+  actualizarEstadoEscaneo('🔍 Encuadre la placa dentro del recuadro verde', false);
   intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1500);
 }
 
-// Se ejecuta periódicamente mientras la cámara está activa. Convierte el
-// cuadro completo a blanco y negro (mejora mucho el OCR en placas
-// amarillas/reflectivas) y se lo pasa al worker de Tesseract. Cualquier
-// error queda capturado y visible en pantalla — antes se perdía en
-// silencio y el escaneo se quedaba trabado sin volver a intentarlo.
+// Se ejecuta periódicamente mientras la cámara está activa. Recorta el
+// cuadro SOLO a la zona de la guía verde (GUIA_PLACA), lo reescala para
+// que el texto quede grande y nítido, y lo convierte a blanco y negro
+// con más contraste (mejora mucho el OCR en placas amarillas/reflectivas)
+// antes de pasarlo al worker de Tesseract. Cualquier error queda
+// capturado y visible en pantalla — antes se perdía en silencio y el
+// escaneo se quedaba trabado sin volver a intentarlo.
 function analizarFotogramaPlaca() {
   if (escaneandoPlaca || !streamCamara || !workerPlacaListo) return;
   const video = document.getElementById('video-camara');
@@ -1720,14 +1758,24 @@ function analizarFotogramaPlaca() {
 
   escaneandoPlaca = true;
   try {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    // Coordenadas del recorte dentro del video en su resolución nativa.
+    const sx = vw * GUIA_PLACA.left;
+    const sy = vh * GUIA_PLACA.top;
+    const sw = vw * (GUIA_PLACA.right - GUIA_PLACA.left);
+    const sh = vh * (GUIA_PLACA.bottom - GUIA_PLACA.top);
+
+    // Escala hacia arriba para que el texto recortado quede con buen
+    // tamaño para el OCR, sin importar qué tan lejos esté el vehículo.
+    const escala = Math.max(1, 700 / sw);
+    canvas.width = Math.round(sw * escala);
+    canvas.height = Math.round(sh * escala);
+
     const ctx = canvas.getContext('2d');
-    // Escala de grises + más contraste vía filtro nativo del canvas:
-    // resalta el texto sin el ruido que mete un umbral fijo cuando la
-    // iluminación del cuarto/portería es despareja.
     ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
 
     workerPlaca.recognize(canvas)
@@ -1750,7 +1798,7 @@ function analizarFotogramaPlaca() {
           }
         } else {
           ultimaCandidataPlaca = null;
-          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' apunte hacia el vehículo'), false);
+          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' encuadre la placa en el recuadro verde'), false);
         }
       })
       .catch(function (err) {
