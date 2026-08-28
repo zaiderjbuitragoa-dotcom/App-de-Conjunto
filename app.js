@@ -1614,6 +1614,8 @@ function cargarCargosAdmin() {
 let streamCamara = null;
 let intervaloEscaneoPlaca = null;
 let escaneandoPlaca = false;
+let workerPlaca = null;
+let workerPlacaListo = false;
 // Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
 const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
@@ -1625,26 +1627,48 @@ function toggleCamaraPlaca() {
 
   if (streamCamara) {
     detenerCamaraPlaca();
-  } else {
-    // Pedimos la mayor resolución posible: al leer placas desde lejos,
-    // cada pixel extra ayuda a que el OCR tenga texto legible.
-    navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-      }
-    })
-      .then(function (stream) {
-        streamCamara = stream;
-        video.srcObject = stream;
-        container.classList.remove('oculto');
-        iniciarEscaneoAutomaticoPlaca();
-      })
-      .catch(function (err) {
-        alert('No se pudo acceder a la cámara: ' + err.message);
-      });
+    return;
   }
+
+  if (typeof Tesseract === 'undefined') {
+    alert('No se pudo cargar el motor de lectura de placas (Tesseract.js). Verifica tu conexión a internet o que un firewall no esté bloqueando cdn.jsdelivr.net, y recarga la página. Mientras tanto puedes escribir la placa manualmente.');
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: 'environment',
+      width: { ideal: 1920 },
+      height: { ideal: 1080 }
+    }
+  }).then(function (stream) {
+    streamCamara = stream;
+    video.srcObject = stream;
+    container.classList.remove('oculto');
+    actualizarEstadoEscaneo('⏳ Cargando motor de lectura...', false);
+    return prepararWorkerPlaca();
+  }).then(function () {
+    if (streamCamara) iniciarEscaneoAutomaticoPlaca();
+  }).catch(function (err) {
+    if (streamCamara) {
+      actualizarEstadoEscaneo('⚠️ Error cargando OCR: ' + err.message, true);
+    } else {
+      alert('No se pudo acceder a la cámara: ' + err.message);
+    }
+  });
+}
+
+// Crea el worker de Tesseract UNA sola vez y lo reutiliza en cada foto:
+// crear un worker nuevo por cuadro es lento y es lo que suele hacer que
+// el escaneo "se cuelgue" sin avisar nada al usuario.
+function prepararWorkerPlaca() {
+  if (workerPlacaListo && workerPlaca) return Promise.resolve();
+  return Tesseract.createWorker('eng')
+    .then(function (w) {
+      workerPlaca = w;
+      return w.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' });
+    })
+    .then(function () { workerPlacaListo = true; });
 }
 
 function detenerCamaraPlaca() {
@@ -1659,60 +1683,81 @@ function detenerCamaraPlaca() {
   }
   const container = document.getElementById('camara-container');
   if (container) container.classList.add('oculto');
-  actualizarEstadoEscaneo('');
+  actualizarEstadoEscaneo('', false);
 }
 
-function actualizarEstadoEscaneo(texto) {
+function actualizarEstadoEscaneo(texto, esError) {
   const el = document.getElementById('estado-escaneo-placa');
-  if (el) el.innerText = texto;
+  if (!el) return;
+  el.innerText = texto;
+  el.style.color = esError ? '#f87171' : '#22c55e';
 }
 
 function iniciarEscaneoAutomaticoPlaca() {
-  actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
-  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1300);
+  actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo', false);
+  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1500);
 }
 
-// Se ejecuta periódicamente mientras la cámara está activa. Recorta la
-// franja central del video (donde suele caer la placa aunque el carro
-// esté lejos), la amplía y le pasa el recorte a Tesseract.js para OCR.
-// Si el texto detectado calza con el patrón de placa, se autocompleta
-// el campo y se dispara la verificación sin que el guarda toque nada.
+// Se ejecuta periódicamente mientras la cámara está activa. Convierte el
+// cuadro completo a blanco y negro (mejora mucho el OCR en placas
+// amarillas/reflectivas) y se lo pasa al worker de Tesseract. Cualquier
+// error queda capturado y visible en pantalla — antes se perdía en
+// silencio y el escaneo se quedaba trabado sin volver a intentarlo.
 function analizarFotogramaPlaca() {
-  if (escaneandoPlaca || !streamCamara) return;
+  if (escaneandoPlaca || !streamCamara || !workerPlacaListo) return;
   const video = document.getElementById('video-camara');
   const canvas = document.getElementById('canvas-ocr-placa');
   if (!video || !canvas || !video.videoWidth) return;
 
   escaneandoPlaca = true;
+  try {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  const cropW = video.videoWidth * 0.6;
-  const cropH = video.videoHeight * 0.35;
-  const cropX = (video.videoWidth - cropW) / 2;
-  const cropY = (video.videoHeight - cropH) / 2;
-
-  canvas.width = cropW * 2;
-  canvas.height = cropH * 2;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-
-  Tesseract.recognize(canvas, 'eng', {
-    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  }).then(function (resultado) {
-    const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const match = texto.match(REGEX_PLACA);
-    if (match) {
-      actualizarEstadoEscaneo('✅ Placa detectada: ' + match[0]);
-      document.getElementById('placa-buscar-input').value = match[0];
-      detenerCamaraPlaca();
-      verificarPlacaVigilanciaUI();
-    } else {
-      actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = img.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const gris = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      const valor = gris > 120 ? 255 : 0;
+      data[i] = data[i + 1] = data[i + 2] = valor;
     }
-  }).catch(function () {
-    actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
-  }).finally(function () {
+    ctx.putImageData(img, 0, 0);
+
+    workerPlaca.recognize(canvas)
+      .then(function (resultado) {
+        const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const match = texto.match(REGEX_PLACA);
+        if (match) {
+          actualizarEstadoEscaneo('✅ Placa detectada: ' + match[0], false);
+          document.getElementById('placa-buscar-input').value = match[0];
+          detenerCamaraPlaca();
+          verificarPlacaVigilanciaUI();
+        } else {
+          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' apunte hacia el vehículo'), false);
+        }
+      })
+      .catch(function (err) {
+        actualizarEstadoEscaneo('⚠️ Error de lectura: ' + err.message, true);
+      })
+      .finally(function () {
+        escaneandoPlaca = false;
+      });
+  } catch (err) {
     escaneandoPlaca = false;
-  });
+    actualizarEstadoEscaneo('⚠️ Error: ' + err.message, true);
+  }
+}
+
+// Botón de respaldo: fuerza una lectura inmediata del cuadro actual,
+// útil si el escaneo automático no ha detectado nada o para probar
+// manualmente qué está viendo el OCR en este momento.
+function forzarLecturaPlaca() {
+  if (!streamCamara) { alert('Primero activa la cámara.'); return; }
+  if (!workerPlacaListo) { alert('El motor de lectura todavía se está cargando, espera un momento.'); return; }
+  escaneandoPlaca = false;
+  analizarFotogramaPlaca();
 }
 
 function renderResultadoPlaca(r, containerId) {
