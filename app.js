@@ -182,7 +182,7 @@ function cargarComunicados(contenedorId) {
     .then(function (r) {
       const comunicados = r.comunicados || [];
       if (!comunicados.length) {
-        cont.innerHTML = '<h3 style="margin:0; font-size:12px; letter-spacing:0.4px; text-transform:uppercase; opacity:0.85;">📢 Avisos del conjunto</h3><p style="opacity:.8; font-size:13px; margin:8px 0 0 0;">No hay avisos vigentes por ahora.</p>';
+        cont.innerHTML = '<h3 style="margin:0; color:#ffffff !important; font-size:13px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; opacity:1 !important;">📢 Avisos del conjunto</h3><p style="color:#ffffff; opacity:.9; font-size:13px; margin:8px 0 0 0;">No hay avisos vigentes por ahora.</p>';
         return;
       }
       _estadoComunicados[contenedorId] = { lista: comunicados, idx: 0 };
@@ -238,7 +238,7 @@ function renderComunicadoSlide(contenedorId) {
 
   cont.innerHTML = `
     <div class="anuncios-header-row">
-      <h3 style="margin:0; font-size:12px; letter-spacing:0.4px; text-transform:uppercase; opacity:0.85;">📢 Avisos del conjunto</h3>
+      <h3 style="margin:0; color:#ffffff !important; font-size:13px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; opacity:1 !important;">📢 Avisos del conjunto</h3>
       ${navHtml}
     </div>
     <div class="anuncio-item" style="margin-bottom:0;">
@@ -585,24 +585,115 @@ function reportarMantenimientoUI() {
 }
 
 /* ---------------- PISCINA (residente) ---------------- */
+function actualizarFilasAcompanantesPiscina() {
+  const n = parseInt(document.getElementById('piscina-acompanantes').value, 10) || 0;
+  const cont = document.getElementById('piscina-acompanantes-rows');
+  cont.innerHTML = '';
+  if (n <= 0) return;
+
+  cont.innerHTML += n > 2
+    ? '<p style="color:var(--rojo); font-size:12px; margin:6px 0;">Con más de 2 acompañantes, nombre, edad y firma son obligatorios para cada uno (evita inconvenientes en portería).</p>'
+    : '<p style="color:var(--texto-suave); font-size:12px; margin:6px 0;">Nombre, edad y firma son opcionales con 2 o menos acompañantes.</p>';
+
+  for (let i = 0; i < n; i++) {
+    cont.innerHTML += `
+      <div class="card" style="background:var(--verde-claro); margin-bottom:10px; padding:14px;">
+        <p style="margin:0 0 8px 0; font-weight:700; font-size:13px;">Acompañante ${i + 1}</p>
+        <input type="text" id="piscina-acomp-nombre-${i}" placeholder="Nombre completo">
+        <input type="number" id="piscina-acomp-edad-${i}" placeholder="Edad" min="0">
+        <p style="font-size:12px; color:var(--texto-suave); margin:0 0 4px 0;">Firma (dibuja con el dedo o el mouse):</p>
+        <canvas id="piscina-acomp-firma-${i}" width="280" height="90" style="width:100%; background:white; border:1.5px solid var(--borde); border-radius:8px; touch-action:none; margin-bottom:8px;"></canvas>
+        <button type="button" class="secundario" onclick="limpiarFirmaPiscina(${i})">Limpiar firma</button>
+      </div>`;
+  }
+  for (let i = 0; i < n; i++) inicializarFirmaPiscina(i);
+}
+
+function inicializarFirmaPiscina(i) {
+  const canvas = document.getElementById('piscina-acomp-firma-' + i);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#1e293b';
+  let dibujando = false;
+
+  function posicion(e) {
+    const rect = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return {
+      x: (p.clientX - rect.left) * (canvas.width / rect.width),
+      y: (p.clientY - rect.top) * (canvas.height / rect.height)
+    };
+  }
+  function iniciar(e) { dibujando = true; const p = posicion(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+  function mover(e) { if (!dibujando) return; const p = posicion(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+  function soltar() { dibujando = false; }
+
+  canvas.addEventListener('mousedown', iniciar);
+  canvas.addEventListener('mousemove', mover);
+  canvas.addEventListener('mouseup', soltar);
+  canvas.addEventListener('mouseleave', soltar);
+  canvas.addEventListener('touchstart', iniciar);
+  canvas.addEventListener('touchmove', mover);
+  canvas.addEventListener('touchend', soltar);
+}
+
+function limpiarFirmaPiscina(i) {
+  const canvas = document.getElementById('piscina-acomp-firma-' + i);
+  if (!canvas) return;
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function canvasTieneFirma(canvas) {
+  const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 0) return true;
+  }
+  return false;
+}
+
 function registrarAccesoPiscinaUI() {
   const fecha = document.getElementById('piscina-fecha').value;
-  const numAcompanantes = document.getElementById('piscina-acompanantes').value;
-  const nombresAcompanantes = document.getElementById('piscina-nombres').value.trim();
+  const edadTitular = document.getElementById('piscina-edad-titular').value;
+  const numAcompanantes = parseInt(document.getElementById('piscina-acompanantes').value, 10) || 0;
   if (!fecha) { alert('Selecciona la fecha'); return; }
+  if (!edadTitular) { alert('Indica tu edad'); return; }
+
+  const acompanantes = [];
+  for (let i = 0; i < numAcompanantes; i++) {
+    const nombreEl = document.getElementById('piscina-acomp-nombre-' + i);
+    const edadEl = document.getElementById('piscina-acomp-edad-' + i);
+    const canvas = document.getElementById('piscina-acomp-firma-' + i);
+    const firma = canvas && canvasTieneFirma(canvas) ? canvas.toDataURL('image/png').split(',')[1] : '';
+    acompanantes.push({
+      nombre: nombreEl ? nombreEl.value.trim() : '',
+      edad: edadEl ? edadEl.value : '',
+      firma: firma
+    });
+  }
+
+  if (numAcompanantes > 2) {
+    const incompleto = acompanantes.some(function (a) { return !a.nombre || !a.edad || !a.firma; });
+    if (incompleto) { alert('Con más de 2 acompañantes debes completar nombre, edad y firma de cada uno.'); return; }
+  }
 
   mostrarCargando(true);
   llamarAPI('registrarAccesoPiscina', {
     idUsuario: SESION.idUsuario, idApto: SESION.idApto,
-    fecha: fecha, numAcompanantes: numAcompanantes, nombresAcompanantes: nombresAcompanantes
+    fecha: fecha, edadTitular: edadTitular, acompanantes: acompanantes
   }).then(function (r) {
     mostrarCargando(false);
     const el = document.getElementById('piscina-resultado');
     if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
     el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Acceso solicitado.</span>';
+    document.getElementById('piscina-edad-titular').value = '';
     document.getElementById('piscina-acompanantes').value = '';
-    document.getElementById('piscina-nombres').value = '';
+    document.getElementById('piscina-acompanantes-rows').innerHTML = '';
     cargarMisAccesosPiscina();
+  }).catch(function (err) {
+    mostrarCargando(false);
+    alert('Error registrando acceso: ' + err.message);
   });
 }
 
@@ -614,9 +705,14 @@ function cargarMisAccesosPiscina() {
       cont.innerHTML = accesos.length ? '' : '<p>No has solicitado accesos a la piscina.</p>';
       accesos.forEach(function (a) {
         const clase = a.Estado === 'Ingresó' ? 'validado' : 'pendiente';
+        const detalle = Array.isArray(a.Acompanantes_Detalle) ? a.Acompanantes_Detalle : [];
+        const nombresTxt = detalle.length
+          ? detalle.map(function (d) { return d.nombre + (d.edad ? ' (' + d.edad + ' años)' : ''); }).join(', ')
+          : '';
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + a.Fecha + '</b> <span class="badge ' + clase + '">' + a.Estado + '</span>' +
-          (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)</span>' : '') +
+          (a.Edad_Titular ? '<br><span style="font-size:13px; color:var(--texto-suave);">Titular: ' + a.Edad_Titular + ' años</span>' : '') +
+          (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)' + (nombresTxt ? ': ' + nombresTxt : '') + '</span>' : '') +
           '</div>';
       });
     });
@@ -800,9 +896,19 @@ function cargarPiscinaHoy() {
       const accesos = r.accesos || [];
       cont.innerHTML = accesos.length ? '' : '<p>No hay accesos a la piscina programados para hoy.</p>';
       accesos.forEach(function (a) {
+        const detalle = Array.isArray(a.Acompanantes_Detalle) ? a.Acompanantes_Detalle : [];
+        const detalleHtml = detalle.length
+          ? '<div style="margin-top:6px;">' + detalle.map(function (d) {
+              return '<div style="font-size:13px; color:var(--texto-suave);">• ' + (d.nombre || 'Sin nombre') +
+                (d.edad ? ' (' + d.edad + ' años)' : '') +
+                (d.firmaUrl ? ' — <a href="' + d.firmaUrl + '" target="_blank">ver firma</a>' : ' — sin firma') +
+                '</div>';
+            }).join('') + '</div>'
+          : '';
         cont.innerHTML += '<div class="item-lista"><b>Apto ' + a.ID_Apto + '</b>' +
+          (a.Edad_Titular ? ' — Titular: ' + a.Edad_Titular + ' años' : '') +
           (a.Num_Acompanantes ? ' — 👥 ' + a.Num_Acompanantes + ' acompañante(s)' : '') +
-          (a.Nombres_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Nombres_Acompanantes + '</span>' : '') +
+          detalleHtml +
           '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoPiscinaUI(\'' + a.ID_Acceso + '\')">✅ Marcar ingreso</button></div>';
       });
     });
@@ -1506,6 +1612,11 @@ function cargarCargosAdmin() {
 
 /* ---------------- VIGILANCIA & ADMIN · CONTROL DE PLACAS Y BLOQUEO POR MORA ---------------- */
 let streamCamara = null;
+let intervaloEscaneoPlaca = null;
+let escaneandoPlaca = false;
+// Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
+// 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
+const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
 
 function toggleCamaraPlaca() {
   const container = document.getElementById('camara-container');
@@ -1514,13 +1625,21 @@ function toggleCamaraPlaca() {
 
   if (streamCamara) {
     detenerCamaraPlaca();
-    container.classList.add('oculto');
   } else {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    // Pedimos la mayor resolución posible: al leer placas desde lejos,
+    // cada pixel extra ayuda a que el OCR tenga texto legible.
+    navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    })
       .then(function (stream) {
         streamCamara = stream;
         video.srcObject = stream;
         container.classList.remove('oculto');
+        iniciarEscaneoAutomaticoPlaca();
       })
       .catch(function (err) {
         alert('No se pudo acceder a la cámara: ' + err.message);
@@ -1529,12 +1648,71 @@ function toggleCamaraPlaca() {
 }
 
 function detenerCamaraPlaca() {
+  if (intervaloEscaneoPlaca) {
+    clearInterval(intervaloEscaneoPlaca);
+    intervaloEscaneoPlaca = null;
+  }
+  escaneandoPlaca = false;
   if (streamCamara) {
     streamCamara.getTracks().forEach(function (t) { t.stop(); });
     streamCamara = null;
   }
   const container = document.getElementById('camara-container');
   if (container) container.classList.add('oculto');
+  actualizarEstadoEscaneo('');
+}
+
+function actualizarEstadoEscaneo(texto) {
+  const el = document.getElementById('estado-escaneo-placa');
+  if (el) el.innerText = texto;
+}
+
+function iniciarEscaneoAutomaticoPlaca() {
+  actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
+  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1300);
+}
+
+// Se ejecuta periódicamente mientras la cámara está activa. Recorta la
+// franja central del video (donde suele caer la placa aunque el carro
+// esté lejos), la amplía y le pasa el recorte a Tesseract.js para OCR.
+// Si el texto detectado calza con el patrón de placa, se autocompleta
+// el campo y se dispara la verificación sin que el guarda toque nada.
+function analizarFotogramaPlaca() {
+  if (escaneandoPlaca || !streamCamara) return;
+  const video = document.getElementById('video-camara');
+  const canvas = document.getElementById('canvas-ocr-placa');
+  if (!video || !canvas || !video.videoWidth) return;
+
+  escaneandoPlaca = true;
+
+  const cropW = video.videoWidth * 0.6;
+  const cropH = video.videoHeight * 0.35;
+  const cropX = (video.videoWidth - cropW) / 2;
+  const cropY = (video.videoHeight - cropH) / 2;
+
+  canvas.width = cropW * 2;
+  canvas.height = cropH * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+  Tesseract.recognize(canvas, 'eng', {
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  }).then(function (resultado) {
+    const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const match = texto.match(REGEX_PLACA);
+    if (match) {
+      actualizarEstadoEscaneo('✅ Placa detectada: ' + match[0]);
+      document.getElementById('placa-buscar-input').value = match[0];
+      detenerCamaraPlaca();
+      verificarPlacaVigilanciaUI();
+    } else {
+      actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
+    }
+  }).catch(function () {
+    actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo, no es necesario encuadrar');
+  }).finally(function () {
+    escaneandoPlaca = false;
+  });
 }
 
 function renderResultadoPlaca(r, containerId) {
@@ -1656,4 +1834,3 @@ function actualizarEstadoVehiculoAdminUI(idVehiculo, nuevoEstado) {
       cargarTodosVehiculosAdmin();
     });
 }
-
