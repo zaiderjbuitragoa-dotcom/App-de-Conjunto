@@ -1613,10 +1613,16 @@ function cargarCargosAdmin() {
 /* ---------------- VIGILANCIA & ADMIN · CONTROL DE PLACAS Y BLOQUEO POR MORA ---------------- */
 let streamCamara = null;
 let intervaloEscaneoPlaca = null;
-let escaneandoPlaca = false;
-let workerPlaca = null;
 let workerPlacaListo = false;
 let ultimaCandidataPlaca = null;
+// Pool de 2 workers de Tesseract trabajando en paralelo: mientras uno
+// está ocupado analizando una captura, el otro ya puede tomar y
+// analizar la siguiente. Esto elimina el tiempo muerto de "esperar a
+// que termine el OCR anterior" y es lo que realmente acelera la
+// lectura en una entrada vehicular — capturar más seguido no sirve de
+// nada si solo hay un lector que procesa las capturas una por una.
+let poolOCRPlaca = []; // [{ worker, ocupado }, { worker, ocupado }]
+const TAMANO_POOL_OCR = 2;
 // Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
 // ⚠️ SIN \b: como el texto ya viene limpio (solo A-Z0-9, sin espacios),
@@ -1699,25 +1705,31 @@ function quitarGuiaPlaca() {
   if (guia) guia.remove();
 }
 
-// Crea el worker de Tesseract UNA sola vez y lo reutiliza en cada foto:
-// crear un worker nuevo por cuadro es lento y es lo que suele hacer que
-// el escaneo "se cuelgue" sin avisar nada al usuario.
+// Crea el pool de workers de Tesseract UNA sola vez y lo reutiliza en
+// cada foto: crear un worker nuevo por cuadro es lento y es lo que
+// suele hacer que el escaneo "se cuelgue" sin avisar nada al usuario.
+function crearWorkerOCRPlaca() {
+  return Tesseract.createWorker('eng').then(function (w) {
+    return w.setParameters({
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+      // '7' = tratar la imagen como una única línea de texto. Ahora
+      // que recortamos el canvas exactamente a la guía verde, la
+      // placa siempre ocupa una sola línea, así que este modo es
+      // mucho más preciso que "sparse text" (modo '11'), que buscaba
+      // palabras sueltas en cualquier parte del cuadro completo.
+      tessedit_pageseg_mode: '7'
+    }).then(function () { return w; });
+  });
+}
+
 function prepararWorkerPlaca() {
-  if (workerPlacaListo && workerPlaca) return Promise.resolve();
-  return Tesseract.createWorker('eng')
-    .then(function (w) {
-      workerPlaca = w;
-      return w.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-        // '7' = tratar la imagen como una única línea de texto. Ahora
-        // que recortamos el canvas exactamente a la guía verde, la
-        // placa siempre ocupa una sola línea, así que este modo es
-        // mucho más preciso que "sparse text" (modo '11'), que buscaba
-        // palabras sueltas en cualquier parte del cuadro completo.
-        tessedit_pageseg_mode: '7'
-      });
-    })
-    .then(function () { workerPlacaListo = true; });
+  if (workerPlacaListo && poolOCRPlaca.length) return Promise.resolve();
+  const creaciones = [];
+  for (let i = 0; i < TAMANO_POOL_OCR; i++) creaciones.push(crearWorkerOCRPlaca());
+  return Promise.all(creaciones).then(function (workers) {
+    poolOCRPlaca = workers.map(function (w) { return { worker: w, ocupado: false }; });
+    workerPlacaListo = true;
+  });
 }
 
 function detenerCamaraPlaca() {
@@ -1725,8 +1737,10 @@ function detenerCamaraPlaca() {
     clearInterval(intervaloEscaneoPlaca);
     intervaloEscaneoPlaca = null;
   }
-  escaneandoPlaca = false;
   ultimaCandidataPlaca = null;
+  // Libera los workers por si alguno quedó marcado "ocupado" (p. ej. si
+  // se cierra la cámara justo cuando una lectura estaba en curso).
+  poolOCRPlaca.forEach(function (p) { p.ocupado = false; });
   if (streamCamara) {
     streamCamara.getTracks().forEach(function (t) { t.stop(); });
     streamCamara = null;
@@ -1745,29 +1759,39 @@ function actualizarEstadoEscaneo(texto, esError) {
 }
 
 // Intervalo corto a propósito: esto es una entrada vehicular, no puede
-// haber trancón esperando al OCR. El worker de Tesseract se reutiliza
-// (ver prepararWorkerPlaca) y el flag `escaneandoPlaca` evita que se
-// encimen lecturas, así que un intervalo agresivo es seguro: si un
-// ciclo tarda más de 700ms, el siguiente simplemente se salta.
+// haber trancón esperando al OCR. Con 2 workers en paralelo, un
+// intervalo agresivo es seguro: si ambos están ocupados, el ciclo
+// simplemente se salta y lo intenta en el siguiente tick.
 function iniciarEscaneoAutomaticoPlaca() {
   actualizarEstadoEscaneo('🔍 Encuadre la placa dentro del recuadro verde', false);
-  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 700);
+  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 400);
 }
 
-// Se ejecuta periódicamente mientras la cámara está activa. Recorta el
-// cuadro SOLO a la zona de la guía verde (GUIA_PLACA), lo reescala para
-// que el texto quede grande y nítido, y lo convierte a blanco y negro
-// con más contraste (mejora mucho el OCR en placas amarillas/reflectivas)
-// antes de pasarlo al worker de Tesseract. Cualquier error queda
-// capturado y visible en pantalla — antes se perdía en silencio y el
-// escaneo se quedaba trabado sin volver a intentarlo.
+// Se ejecuta periódicamente mientras la cámara está activa. Toma el
+// primer worker LIBRE del pool (si ambos están ocupados, se salta este
+// ciclo) y le asigna la captura actual: recorta el cuadro SOLO a la
+// zona de la guía verde (GUIA_PLACA), lo reescala para que el texto
+// quede grande y nítido, y lo convierte a blanco y negro con más
+// contraste (mejora mucho el OCR en placas amarillas/reflectivas)
+// antes de pasarlo al worker. El canvas se convierte a una imagen
+// (dataURL) ANTES de mandarla al worker — así el canvas queda libre de
+// inmediato para la siguiente captura, sin tener que esperar a que
+// termine el reconocimiento de esta. Cualquier error queda capturado y
+// visible en pantalla — antes se perdía en silencio y el escaneo se
+// quedaba trabado sin volver a intentarlo.
 function analizarFotogramaPlaca() {
-  if (escaneandoPlaca || !streamCamara || !workerPlacaListo) return;
-  const video = document.getElementById('video-camara');
-  const canvas = document.getElementById('canvas-ocr-placa');
-  if (!video || !canvas || !video.videoWidth) return;
+  if (!streamCamara || !workerPlacaListo) return;
+  const libre = poolOCRPlaca.find(function (p) { return !p.ocupado; });
+  if (!libre) return; // los 2 workers están ocupados, se salta este ciclo
 
-  escaneandoPlaca = true;
+  const video = document.getElementById('video-camara');
+  if (!video || !video.videoWidth) return;
+  // Canvas temporal (no el del DOM): como ahora puede haber 2 capturas
+  // en vuelo al mismo tiempo (una por cada worker del pool), cada una
+  // necesita su propio lienzo — reutilizar el canvas visible del DOM
+  // causaría que una captura sobrescriba a la otra a mitad de proceso.
+  const canvas = document.createElement('canvas');
+
   try {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
@@ -1792,7 +1816,13 @@ function analizarFotogramaPlaca() {
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
 
-    workerPlaca.recognize(canvas)
+    // Snapshot inmediato como dataURL: libera el canvas ya mismo para
+    // la siguiente captura, en vez de dejarlo "reservado" mientras el
+    // worker todavía está procesando esta imagen.
+    const imagenCapturada = canvas.toDataURL('image/png');
+
+    libre.ocupado = true;
+    libre.worker.recognize(imagenCapturada)
       .then(function (resultado) {
         const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         const confianza = resultado.data.confidence || 0;
@@ -1822,10 +1852,9 @@ function analizarFotogramaPlaca() {
         actualizarEstadoEscaneo('⚠️ Error de lectura: ' + err.message, true);
       })
       .finally(function () {
-        escaneandoPlaca = false;
+        libre.ocupado = false;
       });
   } catch (err) {
-    escaneandoPlaca = false;
     actualizarEstadoEscaneo('⚠️ Error: ' + err.message, true);
   }
 }
@@ -1836,7 +1865,6 @@ function analizarFotogramaPlaca() {
 function forzarLecturaPlaca() {
   if (!streamCamara) { alert('Primero activa la cámara.'); return; }
   if (!workerPlacaListo) { alert('El motor de lectura todavía se está cargando, espera un momento.'); return; }
-  escaneandoPlaca = false;
   analizarFotogramaPlaca();
 }
 
