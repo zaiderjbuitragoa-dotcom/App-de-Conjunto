@@ -245,12 +245,27 @@ button.rojo { background: var(--rojo); }
 
 /* ==================== BANNER DE AVISOS/ANUNCIOS ==================== */
 .anuncios-banner {
-  background: linear-gradient(135deg, var(--azul-medio), var(--azul-oscuro) 55%, var(--azul));
-  border-radius: 20px;
-  padding: 18px;
-  color: white;
-  margin-bottom: 16px;
-  box-shadow: 0 12px 28px rgba(30, 27, 75, 0.28);
+  background: linear-gradient(135deg, var(--azul), var(--azul-oscuro));
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.25);
+}
+.anuncios-banner .titulo,
+.anuncios-banner .fecha {
+  color: #ffffff;
+}
+.anuncios-banner h3,
+.anuncios-header-row h3 {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  font-size: 13px !important;
+  letter-spacing: 0.5px !important;
+  text-transform: uppercase !important;
+  opacity: 1 !important;
+  margin: 0 !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 .anuncios-header-row {
   display: flex;
