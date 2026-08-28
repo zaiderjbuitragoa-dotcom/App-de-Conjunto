@@ -1619,7 +1619,13 @@ let workerPlacaListo = false;
 let ultimaCandidataPlaca = null;
 // Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
-const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
+// ⚠️ SIN \b: como el texto ya viene limpio (solo A-Z0-9, sin espacios),
+// toda la cadena es "una sola palabra" para la regex, así que \b solo
+// aparece al principio/final absolutos del string — eso impedía
+// encontrar la placa cuando el OCR agregaba una letra de ruido antes o
+// después (p. ej. "EAMJY38DL" en vez de "MJY38D"). Sin \b, la placa se
+// encuentra como subcadena en cualquier posición.
+const REGEX_PLACA = /[A-Z]{3}[0-9]{2,3}[A-Z]?/;
 
 // Recuadro guía (en % del ancho/alto del video): define la ÚNICA zona
 // donde debe quedar encuadrada la placa. Es exactamente la misma zona
