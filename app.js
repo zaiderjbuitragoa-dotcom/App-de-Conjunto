@@ -1616,6 +1616,7 @@ let intervaloEscaneoPlaca = null;
 let escaneandoPlaca = false;
 let workerPlaca = null;
 let workerPlacaListo = false;
+let ultimaCandidataPlaca = null;
 // Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
 const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
@@ -1666,7 +1667,14 @@ function prepararWorkerPlaca() {
   return Tesseract.createWorker('eng')
     .then(function (w) {
       workerPlaca = w;
-      return w.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' });
+      return w.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+        // "Sparse text": busca palabras sueltas en cualquier parte de la
+        // imagen, sin asumir que es un documento con párrafos — mucho
+        // más apropiado para una placa suelta en medio de un fondo con
+        // ruido (estantes, techo, etc.) que el modo automático por defecto.
+        tessedit_pageseg_mode: '11'
+      });
     })
     .then(function () { workerPlacaListo = true; });
 }
@@ -1677,6 +1685,7 @@ function detenerCamaraPlaca() {
     intervaloEscaneoPlaca = null;
   }
   escaneandoPlaca = false;
+  ultimaCandidataPlaca = null;
   if (streamCamara) {
     streamCamara.getTracks().forEach(function (t) { t.stop(); });
     streamCamara = null;
@@ -1714,27 +1723,33 @@ function analizarFotogramaPlaca() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
+    // Escala de grises + más contraste vía filtro nativo del canvas:
+    // resalta el texto sin el ruido que mete un umbral fijo cuando la
+    // iluminación del cuarto/portería es despareja.
+    ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = img.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const gris = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      const valor = gris > 120 ? 255 : 0;
-      data[i] = data[i + 1] = data[i + 2] = valor;
-    }
-    ctx.putImageData(img, 0, 0);
+    ctx.filter = 'none';
 
     workerPlaca.recognize(canvas)
       .then(function (resultado) {
         const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         const match = texto.match(REGEX_PLACA);
         if (match) {
-          actualizarEstadoEscaneo('✅ Placa detectada: ' + match[0], false);
-          document.getElementById('placa-buscar-input').value = match[0];
-          detenerCamaraPlaca();
-          verificarPlacaVigilanciaUI();
+          // Exige ver la MISMA placa en dos lecturas seguidas antes de
+          // darla por buena — filtra la mayoría de los errores de OCR
+          // de una sola pasada (letras/números confundidos al vuelo).
+          if (ultimaCandidataPlaca === match[0]) {
+            actualizarEstadoEscaneo('✅ Placa confirmada: ' + match[0], false);
+            document.getElementById('placa-buscar-input').value = match[0];
+            ultimaCandidataPlaca = null;
+            detenerCamaraPlaca();
+            verificarPlacaVigilanciaUI();
+          } else {
+            ultimaCandidataPlaca = match[0];
+            actualizarEstadoEscaneo('🔍 Placa candidata: ' + match[0] + ' (confirmando...)', false);
+          }
         } else {
+          ultimaCandidataPlaca = null;
           actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' apunte hacia el vehículo'), false);
         }
       })
