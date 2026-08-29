@@ -202,10 +202,10 @@ function renderComunicadoSlide(contenedorId) {
   const c = st.lista[st.idx];
   const fecha = c.Fecha_Publicacion ? new Date(c.Fecha_Publicacion).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
   const driveId = extraerDriveId(c.Adjunto_URL);
-  
+
   // URL directa de CDN de Google que carga 100% confiable en <img>
-  const imgSrc = driveId 
-    ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000') 
+  const imgSrc = driveId
+    ? ('https://lh3.googleusercontent.com/d/' + driveId + '=w1000')
     : c.Adjunto_URL;
 
   let navHtml = '';
@@ -231,7 +231,7 @@ function renderComunicadoSlide(contenedorId) {
   if (c.Adjunto_URL) {
     const fallbackSrc = driveId ? ('https://drive.google.com/thumbnail?id=' + driveId + '&sz=w1000') : c.Adjunto_URL;
     imgTag = `
-      <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}" 
+      <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}"
         onerror="this.onerror=null; this.src='${fallbackSrc}';">
     `;
   }
@@ -1544,7 +1544,7 @@ function cargarApartamentosCargosSelect() {
     .then(function (r) {
       const apartamentos = r.apartamentos || [];
       select.innerHTML = '';
-      
+
       const optTodos = document.createElement('option');
       optTodos.value = 'TODOS';
       optTodos.textContent = '📢 TODOS LOS APARTAMENTOS (Asignación Masiva)';
@@ -1613,13 +1613,38 @@ function cargarCargosAdmin() {
 /* ---------------- VIGILANCIA & ADMIN · CONTROL DE PLACAS Y BLOQUEO POR MORA ---------------- */
 let streamCamara = null;
 let intervaloEscaneoPlaca = null;
-let escaneandoPlaca = false;
-let workerPlaca = null;
 let workerPlacaListo = false;
 let ultimaCandidataPlaca = null;
+// Pool de 2 workers de Tesseract trabajando en paralelo: mientras uno
+// está ocupado analizando una captura, el otro ya puede tomar y
+// analizar la siguiente. Esto elimina el tiempo muerto de "esperar a
+// que termine el OCR anterior" y es lo que realmente acelera la
+// lectura en una entrada vehicular — capturar más seguido no sirve de
+// nada si solo hay un lector que procesa las capturas una por una.
+let poolOCRPlaca = []; // [{ worker, ocupado }, { worker, ocupado }]
+const TAMANO_POOL_OCR = 2;
 // Formato típico de placas colombianas: 3 letras + 2-3 números (carro) o
 // 3 letras + 2 números + 1 letra (moto). Ajusta el patrón si tu país usa otro formato.
-const REGEX_PLACA = /\b[A-Z]{3}[0-9]{2,3}[A-Z]?\b/;
+// ⚠️ SIN \b: como el texto ya viene limpio (solo A-Z0-9, sin espacios),
+// toda la cadena es "una sola palabra" para la regex, así que \b solo
+// aparece al principio/final absolutos del string — eso impedía
+// encontrar la placa cuando el OCR agregaba una letra de ruido antes o
+// después (p. ej. "EAMJY38DL" en vez de "MJY38D"). Sin \b, la placa se
+// encuentra como subcadena en cualquier posición.
+const REGEX_PLACA = /[A-Z]{3}[0-9]{2,3}[A-Z]?/;
+
+// Recuadro guía de RESPALDO (en % del ancho/alto del video): solo se usa
+// si el detector YOLO no pudo cargar (p. ej. sin internet al CDN de
+// onnxruntime-web). Con YOLO activo, el recuadro deja de ser fijo y pasa
+// a dibujarse dinámicamente donde el modelo realmente encuentra la placa
+// — por eso ya NO hace falta encuadrar manualmente ni acercar el carro a
+// una zona exacta de la pantalla.
+const GUIA_PLACA = { left: 0.12, right: 0.88, top: 0.35, bottom: 0.65 };
+
+// Cuánto margen (proporcional al tamaño de la caja detectada) se agrega
+// alrededor de la placa que encontró YOLO antes de recortarla para el
+// OCR. Un poco de aire alrededor evita cortar bordes de caracteres.
+const MARGEN_CAJA_YOLO = 0.18;
 
 function toggleCamaraPlaca() {
   const container = document.getElementById('camara-container');
@@ -1645,9 +1670,16 @@ function toggleCamaraPlaca() {
   }).then(function (stream) {
     streamCamara = stream;
     video.srcObject = stream;
+    video.style.objectFit = 'cover';
     container.classList.remove('oculto');
+    container.style.position = 'relative';
+    asegurarGuiaPlaca();
     actualizarEstadoEscaneo('⏳ Cargando motor de lectura...', false);
-    return prepararWorkerPlaca();
+    // Se cargan en paralelo el pool de OCR (Tesseract) y el detector de
+    // posición (YOLO). Si YOLO falla (sin internet, CDN bloqueado, etc.)
+    // el escaneo sigue funcionando con el recuadro fijo de respaldo —
+    // nunca se pierde la función existente por un fallo del detector nuevo.
+    return Promise.all([prepararWorkerPlaca(), inicializarModeloYolo()]);
   }).then(function () {
     if (streamCamara) iniciarEscaneoAutomaticoPlaca();
   }).catch(function (err) {
@@ -1659,24 +1691,84 @@ function toggleCamaraPlaca() {
   });
 }
 
-// Crea el worker de Tesseract UNA sola vez y lo reutiliza en cada foto:
-// crear un worker nuevo por cuadro es lento y es lo que suele hacer que
-// el escaneo "se cuelgue" sin avisar nada al usuario.
+// Dibuja el recuadro guía sobre el contenedor de la cámara, con una
+// máscara oscura alrededor para resaltarlo. Se crea una sola vez y
+// luego se reutiliza/reposiciona mientras la cámara esté activa:
+// - Con YOLO activo, arranca oculto y se va moviendo a donde el
+//   detector encuentra la placa (ver actualizarGuiaPlacaDinamica).
+// - Sin YOLO (respaldo), queda fijo en GUIA_PLACA como antes.
+function asegurarGuiaPlaca() {
+  const container = document.getElementById('camara-container');
+  if (!container || document.getElementById('guia-placa')) return;
+  const guia = document.createElement('div');
+  guia.id = 'guia-placa';
+  guia.style.cssText =
+    'position:absolute; border:3px solid #22c55e; border-radius:10px; ' +
+    'pointer-events:none; transition:all 0.12s ease-out; z-index:5;';
+  posicionarGuiaPlaca(GUIA_PLACA.left, GUIA_PLACA.top, GUIA_PLACA.right, GUIA_PLACA.bottom, false);
+  container.appendChild(guia);
+}
+
+// Posiciona el recuadro guía usando fracciones (0–1) left/top/right/bottom
+// del tamaño del contenedor. Si 'activa' es true se resalta con la
+// máscara oscura (placa detectada ahora mismo); si no, queda tenue.
+function posicionarGuiaPlaca(left, top, right, bottom, activa) {
+  const guia = document.getElementById('guia-placa');
+  if (!guia) return;
+  guia.style.left = (left * 100) + '%';
+  guia.style.right = ((1 - right) * 100) + '%';
+  guia.style.top = (top * 100) + '%';
+  guia.style.bottom = ((1 - bottom) * 100) + '%';
+  guia.style.boxShadow = activa ? '0 0 0 9999px rgba(0,0,0,0.45)' : '0 0 0 9999px rgba(0,0,0,0.15)';
+  guia.style.borderColor = activa ? '#22c55e' : 'rgba(34,197,94,0.5)';
+  guia.style.opacity = '1';
+}
+
+// Mueve el recuadro guía a la caja que YOLO acaba de detectar (en
+// coordenadas de píxel del video), convirtiéndola a fracciones 0–1.
+function actualizarGuiaPlacaDinamica(caja, video) {
+  if (!caja) {
+    const guia = document.getElementById('guia-placa');
+    if (guia) guia.style.opacity = '0.35';
+    return;
+  }
+  posicionarGuiaPlaca(
+    caja.x1 / video.videoWidth, caja.y1 / video.videoHeight,
+    caja.x2 / video.videoWidth, caja.y2 / video.videoHeight,
+    true
+  );
+}
+
+function quitarGuiaPlaca() {
+  const guia = document.getElementById('guia-placa');
+  if (guia) guia.remove();
+}
+
+// Crea el pool de workers de Tesseract UNA sola vez y lo reutiliza en
+// cada foto: crear un worker nuevo por cuadro es lento y es lo que
+// suele hacer que el escaneo "se cuelgue" sin avisar nada al usuario.
+function crearWorkerOCRPlaca() {
+  return Tesseract.createWorker('eng').then(function (w) {
+    return w.setParameters({
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+      // '7' = tratar la imagen como una única línea de texto. Ahora
+      // que recortamos el canvas exactamente a la guía verde, la
+      // placa siempre ocupa una sola línea, así que este modo es
+      // mucho más preciso que "sparse text" (modo '11'), que buscaba
+      // palabras sueltas en cualquier parte del cuadro completo.
+      tessedit_pageseg_mode: '7'
+    }).then(function () { return w; });
+  });
+}
+
 function prepararWorkerPlaca() {
-  if (workerPlacaListo && workerPlaca) return Promise.resolve();
-  return Tesseract.createWorker('eng')
-    .then(function (w) {
-      workerPlaca = w;
-      return w.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-        // Después de recortar solo la franja donde debería estar la
-        // placa, tratamos ese recorte como UNA sola línea de texto —
-        // mucho más preciso que "buscar texto disperso" sobre una
-        // imagen completa llena de ruido de fondo (estantes, techo, etc.)
-        tessedit_pageseg_mode: '7'
-      });
-    })
-    .then(function () { workerPlacaListo = true; });
+  if (workerPlacaListo && poolOCRPlaca.length) return Promise.resolve();
+  const creaciones = [];
+  for (let i = 0; i < TAMANO_POOL_OCR; i++) creaciones.push(crearWorkerOCRPlaca());
+  return Promise.all(creaciones).then(function (workers) {
+    poolOCRPlaca = workers.map(function (w) { return { worker: w, ocupado: false }; });
+    workerPlacaListo = true;
+  });
 }
 
 function detenerCamaraPlaca() {
@@ -1684,14 +1776,18 @@ function detenerCamaraPlaca() {
     clearInterval(intervaloEscaneoPlaca);
     intervaloEscaneoPlaca = null;
   }
-  escaneandoPlaca = false;
   ultimaCandidataPlaca = null;
+  deteccionYoloEnCurso = false;
+  // Libera los workers por si alguno quedó marcado "ocupado" (p. ej. si
+  // se cierra la cámara justo cuando una lectura estaba en curso).
+  poolOCRPlaca.forEach(function (p) { p.ocupado = false; });
   if (streamCamara) {
     streamCamara.getTracks().forEach(function (t) { t.stop(); });
     streamCamara = null;
   }
   const container = document.getElementById('camara-container');
   if (container) container.classList.add('oculto');
+  quitarGuiaPlaca();
   actualizarEstadoEscaneo('', false);
 }
 
@@ -1702,111 +1798,142 @@ function actualizarEstadoEscaneo(texto, esError) {
   el.style.color = esError ? '#f87171' : '#22c55e';
 }
 
+// Intervalo corto a propósito: esto es una entrada vehicular, no puede
+// haber trancón esperando al OCR. Con 2 workers en paralelo, un
+// intervalo agresivo es seguro: si ambos están ocupados, el ciclo
+// simplemente se salta y lo intenta en el siguiente tick.
 function iniciarEscaneoAutomaticoPlaca() {
-  actualizarEstadoEscaneo('🔍 Escaneando... apunte hacia el vehículo', false);
-  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 1500);
+  actualizarEstadoEscaneo(
+    yoloEstaListo()
+      ? '🔍 La cámara buscará la placa sola, sin importar dónde esté el vehículo'
+      : '🔍 Encuadre la placa dentro del recuadro verde',
+    false
+  );
+  intervaloEscaneoPlaca = setInterval(analizarFotogramaPlaca, 400);
 }
 
-// Se ejecuta periódicamente mientras la cámara está activa. Convierte el
-// cuadro completo a blanco y negro (mejora mucho el OCR en placas
-// amarillas/reflectivas) y se lo pasa al worker de Tesseract. Cualquier
-// error queda capturado y visible en pantalla — antes se perdía en
-// silencio y el escaneo se quedaba trabado sin volver a intentarlo.
-// Localiza la región donde probablemente está la placa usando densidad
-// de bordes verticales (las placas tienen muchos bordes juntos por las
-// letras/números; un estante o el techo, no). No es un modelo de IA
-// como YOLO, pero aplica la misma idea: recortar ANTES de leer, en vez
-// de mandarle a Tesseract el cuadro completo con todo el ruido de fondo.
-function localizarRegionPlaca(video) {
-  const escala = 480 / video.videoWidth;
-  const w = Math.max(1, Math.round(video.videoWidth * escala));
-  const h = Math.max(1, Math.round(video.videoHeight * escala));
+// true mientras hay una detección YOLO en curso, para no lanzar una
+// segunda detección sobre el mismo frame antes de que termine la primera
+// (la inferencia YOLO es más pesada que un simple recorte fijo).
+let deteccionYoloEnCurso = false;
 
-  const tmp = document.createElement('canvas');
-  tmp.width = w;
-  tmp.height = h;
-  const tctx = tmp.getContext('2d', { willReadFrequently: true });
-  tctx.drawImage(video, 0, 0, w, h);
-  const data = tctx.getImageData(0, 0, w, h).data;
-
-  const gris = new Float32Array(w * h);
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    gris[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-  }
-
-  // Densidad de bordes por fila (busca la banda horizontal más "texturizada")
-  const gradienteFila = new Float32Array(h);
-  for (let y = 0; y < h; y++) {
-    let suma = 0;
-    for (let x = 1; x < w; x++) {
-      const idx = y * w + x;
-      suma += Math.abs(gris[idx] - gris[idx - 1]);
-    }
-    gradienteFila[y] = suma;
-  }
-
-  const ventana = Math.max(6, Math.round(h * 0.10));
-  let mejorSuma = -1, mejorY = 0;
-  for (let y = 0; y <= h - ventana; y++) {
-    let suma = 0;
-    for (let k = 0; k < ventana; k++) suma += gradienteFila[y + k];
-    if (suma > mejorSuma) { mejorSuma = suma; mejorY = y; }
-  }
-  const yTop = mejorY;
-  const yBot = Math.min(h, mejorY + ventana);
-
-  // Dentro de esa banda, límites izquierdo/derecho por densidad de bordes
-  const gradienteCol = new Float32Array(w);
-  let maxCol = 0;
-  for (let x = 1; x < w; x++) {
-    let suma = 0;
-    for (let y = yTop; y < yBot; y++) suma += Math.abs(gris[y * w + x] - gris[y * w + x - 1]);
-    gradienteCol[x] = suma;
-    if (suma > maxCol) maxCol = suma;
-  }
-  const umbralCol = maxCol * 0.15;
-  let xIni = 0, xFin = w - 1;
-  while (xIni < w && gradienteCol[xIni] < umbralCol) xIni++;
-  while (xFin > 0 && gradienteCol[xFin] < umbralCol) xFin--;
-  if (xFin <= xIni) { xIni = 0; xFin = w - 1; }
-
-  // Convertimos de vuelta a coordenadas del video real, con margen extra
-  const margenX = (xFin - xIni) * 0.15 || w * 0.05;
-  const margenY = (yBot - yTop) * 0.8 || h * 0.05;
-  const rx = Math.max(0, (xIni - margenX) / escala);
-  const ry = Math.max(0, (yTop - margenY) / escala);
-  const rw = Math.min(video.videoWidth - rx, (xFin - xIni + margenX * 2) / escala);
-  const rh = Math.min(video.videoHeight - ry, (yBot - yTop + margenY * 2) / escala);
-
-  return { x: rx, y: ry, w: Math.max(rw, 40), h: Math.max(rh, 20) };
-}
-
+// Se ejecuta periódicamente mientras la cámara está activa.
+//
+// Con YOLO disponible: primero se detecta EN QUÉ PARTE del cuadro está
+// la placa (sin importar distancia/ángulo — esto es lo que corrige el
+// problema de "no enfoca bien" del recuadro fijo). Si no se detecta
+// ninguna placa con suficiente confianza, se actualiza el estado visual
+// y se sale sin gastar un worker de OCR en un recorte vacío.
+//
+// Si YOLO no cargó (sin internet al CDN, etc.), se cae automáticamente
+// al comportamiento original: recorte fijo dentro de GUIA_PLACA — el
+// sistema sigue funcionando exactamente como antes, solo sin el
+// enfoque automático.
+//
+// Una vez se tiene la caja (de YOLO o del recuadro fijo), el resto del
+// pipeline es IDÉNTICO al original: recorte, reescalado a ~900px,
+// escala de grises + contraste, y envío al primer worker de Tesseract
+// libre del pool.
 function analizarFotogramaPlaca() {
-  if (escaneandoPlaca || !streamCamara || !workerPlacaListo) return;
+  if (!streamCamara || !workerPlacaListo) return;
+
   const video = document.getElementById('video-camara');
-  const canvas = document.getElementById('canvas-ocr-placa');
-  if (!video || !canvas || !video.videoWidth) return;
+  if (!video || !video.videoWidth) return;
 
-  escaneandoPlaca = true;
+  if (yoloEstaListo() && !deteccionYoloEnCurso) {
+    deteccionYoloEnCurso = true;
+    detectarPlacaYolo(video).then(function (caja) {
+      deteccionYoloEnCurso = false;
+      actualizarGuiaPlacaDinamica(caja, video);
+      if (!caja) {
+        actualizarEstadoEscaneo('🔍 Buscando placa en la imagen...', false);
+        return;
+      }
+      procesarRecortePlaca(video, cajaConMargen(caja, video));
+    }).catch(function () {
+      deteccionYoloEnCurso = false;
+    });
+    return;
+  }
+
+  if (yoloEstaListo()) return; // ya hay una detección YOLO en curso, se salta este ciclo
+
+  // Respaldo: YOLO no está disponible, se usa el recuadro fijo de siempre.
+  const vw = video.videoWidth, vh = video.videoHeight;
+  procesarRecortePlaca(video, {
+    x1: vw * GUIA_PLACA.left, y1: vh * GUIA_PLACA.top,
+    x2: vw * GUIA_PLACA.right, y2: vh * GUIA_PLACA.bottom
+  });
+}
+
+// Agranda un poco la caja detectada por YOLO (margen proporcional a su
+// tamaño) y la recorta a los límites del video, para no perder bordes
+// de caracteres cuando el modelo ajusta el recuadro muy pegado a la placa.
+function cajaConMargen(caja, video) {
+  const anchoCaja = caja.x2 - caja.x1;
+  const altoCaja = caja.y2 - caja.y1;
+  const mx = anchoCaja * MARGEN_CAJA_YOLO;
+  const my = altoCaja * MARGEN_CAJA_YOLO;
+  return {
+    x1: Math.max(0, caja.x1 - mx), y1: Math.max(0, caja.y1 - my),
+    x2: Math.min(video.videoWidth, caja.x2 + mx), y2: Math.min(video.videoHeight, caja.y2 + my)
+  };
+}
+
+// Toma un worker LIBRE del pool (si ambos están ocupados, se salta este
+// ciclo) y le asigna el recorte de 'caja' (coordenadas de píxel del
+// video, ya sea de YOLO o del recuadro fijo de respaldo): lo reescala
+// para que el texto quede grande y nítido, y lo convierte a blanco y
+// negro con más contraste (mejora mucho el OCR en placas amarillas/
+// reflectivas) antes de pasarlo al worker. El canvas se convierte a una
+// imagen (dataURL) ANTES de mandarla al worker — así el canvas queda
+// libre de inmediato para la siguiente captura, sin tener que esperar a
+// que termine el reconocimiento de esta. Cualquier error queda
+// capturado y visible en pantalla — antes se perdía en silencio y el
+// escaneo se quedaba trabado sin volver a intentarlo.
+function procesarRecortePlaca(video, caja) {
+  const libre = poolOCRPlaca.find(function (p) { return !p.ocupado; });
+  if (!libre) return; // los 2 workers están ocupados, se salta este ciclo
+
+  const canvas = document.createElement('canvas');
+
   try {
-    const region = localizarRegionPlaca(video);
+    const sx = caja.x1, sy = caja.y1;
+    const sw = caja.x2 - caja.x1, sh = caja.y2 - caja.y1;
+    if (sw <= 0 || sh <= 0) return;
 
-    const anchoDestino = 640;
-    const factor = anchoDestino / region.w;
-    canvas.width = anchoDestino;
-    canvas.height = Math.round(region.h * factor);
+    // Escala hacia arriba para que el texto recortado quede con buen
+    // tamaño para el OCR. Objetivo más grande (900px en vez de 700px)
+    // para compensar vehículos lejanos, donde la placa ocupa muy pocos
+    // píxeles reales dentro del recorte: entre más pequeña llega, más
+    // hace falta ampliarla para que Tesseract distinga los caracteres.
+    const escala = Math.max(1, 900 / sw);
+    canvas.width = Math.round(sw * escala);
+    canvas.height = Math.round(sh * escala);
 
     const ctx = canvas.getContext('2d');
-    ctx.filter = 'grayscale(1) contrast(1.35) brightness(1.05)';
-    ctx.drawImage(video, region.x, region.y, region.w, region.h, 0, 0, canvas.width, canvas.height);
+    ctx.filter = 'grayscale(1) contrast(1.5) brightness(1.08)';
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
 
-    workerPlaca.recognize(canvas)
+    // Snapshot inmediato como dataURL: libera el canvas ya mismo para
+    // la siguiente captura, en vez de dejarlo "reservado" mientras el
+    // worker todavía está procesando esta imagen.
+    const imagenCapturada = canvas.toDataURL('image/png');
+
+    libre.ocupado = true;
+    libre.worker.recognize(imagenCapturada)
       .then(function (resultado) {
         const texto = (resultado.data.text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const confianza = resultado.data.confidence || 0;
         const match = texto.match(REGEX_PLACA);
         if (match) {
-          if (ultimaCandidataPlaca === match[0]) {
+          // Si el OCR está muy seguro de la lectura, la aceptamos de
+          // una sola vez — clave para no hacer esperar al vehículo en
+          // la entrada. Con confianza baja/media sí exigimos ver la
+          // MISMA placa en dos lecturas seguidas, para filtrar errores
+          // de una sola pasada (letras/números confundidos al vuelo).
+          if (confianza >= 75 || ultimaCandidataPlaca === match[0]) {
             actualizarEstadoEscaneo('✅ Placa confirmada: ' + match[0], false);
             document.getElementById('placa-buscar-input').value = match[0];
             ultimaCandidataPlaca = null;
@@ -1818,17 +1945,16 @@ function analizarFotogramaPlaca() {
           }
         } else {
           ultimaCandidataPlaca = null;
-          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' apunte hacia el vehículo'), false);
+          actualizarEstadoEscaneo('🔍 Escaneando...' + (texto ? ' (veo: "' + texto.slice(0, 14) + '")' : ' acerque el vehículo o encuadre mejor la placa'), false);
         }
       })
       .catch(function (err) {
         actualizarEstadoEscaneo('⚠️ Error de lectura: ' + err.message, true);
       })
       .finally(function () {
-        escaneandoPlaca = false;
+        libre.ocupado = false;
       });
   } catch (err) {
-    escaneandoPlaca = false;
     actualizarEstadoEscaneo('⚠️ Error: ' + err.message, true);
   }
 }
@@ -1839,7 +1965,6 @@ function analizarFotogramaPlaca() {
 function forzarLecturaPlaca() {
   if (!streamCamara) { alert('Primero activa la cámara.'); return; }
   if (!workerPlacaListo) { alert('El motor de lectura todavía se está cargando, espera un momento.'); return; }
-  escaneandoPlaca = false;
   analizarFotogramaPlaca();
 }
 
