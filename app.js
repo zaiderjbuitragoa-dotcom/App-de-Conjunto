@@ -2055,8 +2055,34 @@ function cargarTodosVehiculosAdmin() {
 
       vehiculos.forEach(function (v) {
         const estaEnMora = v.EstaEnMora;
-        const claseBadge = estaEnMora ? 'rechazado' : (v.Autorizado === 'Si' ? 'autorizado' : 'pendiente');
-        const estadoTexto = estaEnMora ? '🔴 BLOQUEADO POR MORA ($' + v.SaldoApto.toLocaleString('es-CO') + ')' : (v.Autorizado === 'Bloqueado' ? '🔴 BLOQUEADO POR ADMIN' : '🟢 AL DÍA');
+        const autorizado = String(v.Autorizado).trim().toLowerCase() === 'si';
+        const bloqueado = String(v.Autorizado).trim().toLowerCase() === 'bloqueado';
+        // ✅ FIX: antes solo se distinguía "Bloqueado" vs todo lo demás, así
+        // que un vehículo recién registrado (Autorizado = 'No', pendiente de
+        // que el admin lo apruebe) se mostraba como "🟢 AL DÍA" igual que uno
+        // ya autorizado, y solo aparecía el botón de "Bloquear" — nunca uno
+        // de "Aprobar". Ahora se distinguen los 3 estados reales.
+        const pendiente = !autorizado && !bloqueado;
+
+        const claseBadge = estaEnMora ? 'rechazado' : (autorizado ? 'autorizado' : (bloqueado ? 'rechazado' : 'pendiente'));
+        const estadoTexto = estaEnMora
+          ? '🔴 BLOQUEADO POR MORA ($' + v.SaldoApto.toLocaleString('es-CO') + ')'
+          : bloqueado
+            ? '🔴 BLOQUEADO POR ADMIN'
+            : pendiente
+              ? '🟡 PENDIENTE DE AUTORIZACIÓN'
+              : '🟢 AL DÍA';
+
+        let botones = '';
+        if (pendiente) {
+          botones =
+            `<button class="verde" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Si')">✅ Aprobar</button>` +
+            `<button class="rojo" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Bloqueado')">🚫 Rechazar / Bloquear</button>`;
+        } else if (bloqueado) {
+          botones = `<button class="verde" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Si')">✅ Desbloquear</button>`;
+        } else {
+          botones = `<button class="rojo" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Bloqueado')">🚫 Bloquear Manualmente</button>`;
+        }
 
         cont.innerHTML += `
           <div class="item-lista">
@@ -2069,10 +2095,7 @@ function cargarTodosVehiculosAdmin() {
               ${v.Tipo} ${v.Marca ? '· ' + v.Marca : ''} ${v.Color ? '· Color: ' + v.Color : ''}
             </div>
             <div style="margin-top:8px; display:flex; gap:8px;">
-              ${v.Autorizado === 'Bloqueado'
-                ? `<button class="verde" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Si')">✅ Desbloquear</button>`
-                : `<button class="rojo" style="width:auto; padding:6px 12px; font-size:12px;" onclick="actualizarEstadoVehiculoAdminUI('${v.ID_Vehiculo}', 'Bloqueado')">🚫 Bloquear Manualmente</button>`
-              }
+              ${botones}
             </div>
           </div>`;
       });
