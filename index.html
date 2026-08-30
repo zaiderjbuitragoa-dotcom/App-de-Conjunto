@@ -466,6 +466,13 @@
       </div>
     </div>
 
+    <div id="admin-panel-piscina" class="panel-modal oculto"><div class="modal-header"><h2>🏊 Piscina</h2><button class="btn-cerrar-modal" onclick="cerrarModuloAdmin()">← Volver</button></div>
+      <div class="card">
+        <h3>🏊 Accesos a piscina hoy</h3>
+        <div id="lista-piscina-hoy-admin"></div>
+      </div>
+    </div>
+
     <div id="admin-panel-sos" class="panel-modal oculto"><div class="modal-header"><h2>🆘 Alertas SOS</h2><button class="btn-cerrar-modal" onclick="cerrarModuloAdmin()">← Volver</button></div>
       <div class="card">
         <h3>🆘 Alertas activas</h3>
@@ -525,9 +532,11 @@
 <button class="modulo-card" onclick="mostrarPanelAdmin('multas')"><span class="modulo-badge oculto" id="badge-admin-multas"></span><span class="modulo-icono">🚫</span><span class="modulo-nombre">Multas</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('pqrs')"><span class="modulo-badge oculto" id="badge-admin-pqrs"></span><span class="modulo-icono">✉️</span><span class="modulo-nombre">PQRS</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('mantenimiento')"><span class="modulo-badge oculto" id="badge-admin-mantenimiento"></span><span class="modulo-icono">🔧</span><span class="modulo-nombre">Mantenimiento</span></button>
+<button class="modulo-card" onclick="mostrarPanelAdmin('piscina')"><span class="modulo-icono">🏊</span><span class="modulo-nombre">Piscina</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('sos')"><span class="modulo-badge oculto" id="badge-admin-sos"></span><span class="modulo-icono">🆘</span><span class="modulo-nombre">Alertas SOS</span></button>
 </div></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
   <script src="deteccion-placa-yolo.js"></script>
   <script src="app.js"></script>
