@@ -10,6 +10,33 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbwY0oXQ3OVMg7n5zRepan7y
 
 let SESION = null;
 
+// ✅ FIX: la sesión solo vivía en esta variable de JS, así que
+// cualquier refresh de la página la perdía y mandaba de vuelta al
+// login. Ahora se guarda en localStorage y se restaura al cargar,
+// sin necesidad de ingresar de nuevo hasta que el usuario cierre
+// sesión explícitamente con el botón 🚪.
+const CLAVE_SESION = 'miConjuntoSesion';
+
+function guardarSesion(sesion) {
+  try { localStorage.setItem(CLAVE_SESION, JSON.stringify(sesion)); } catch (e) { /* localStorage no disponible */ }
+}
+
+function borrarSesionGuardada() {
+  try { localStorage.removeItem(CLAVE_SESION); } catch (e) { /* localStorage no disponible */ }
+}
+
+function restaurarSesion() {
+  let guardada = null;
+  try { guardada = JSON.parse(localStorage.getItem(CLAVE_SESION) || 'null'); } catch (e) { guardada = null; }
+  if (!guardada || !guardada.idUsuario || !guardada.rol) return;
+
+  SESION = guardada;
+  document.getElementById('vista-login').classList.add('oculto');
+  if (SESION.rol === 'Residente') iniciarResidente();
+  else if (SESION.rol === 'Vigilancia') iniciarVigilancia();
+  else if (SESION.rol === 'Administrador') iniciarAdmin();
+}
+
 function mostrarCargando(v) {
   document.getElementById('cargando').classList.toggle('oculto', !v);
 }
@@ -76,6 +103,7 @@ function hacerLogin() {
         return;
       }
       SESION = resp;
+      guardarSesion(resp);
       document.getElementById('vista-login').classList.add('oculto');
       if (resp.rol === 'Residente') iniciarResidente();
       else if (resp.rol === 'Vigilancia') iniciarVigilancia();
@@ -92,6 +120,8 @@ let intervalBadges = null;
 
 function cerrarSesion() {
   SESION = null;
+  borrarSesionGuardada();
+  Object.keys(_estadoComunicados).forEach(detenerAutoplayAviso);
   if (intervalBadges) {
     clearInterval(intervalBadges);
     intervalBadges = null;
@@ -167,7 +197,8 @@ function registrarUsuarioUI() {
 }
 
 /* ---------------- AVISOS / COMUNICADOS (Carrusel & Formateador Drive) ---------------- */
-const _estadoComunicados = {}; // almacena { lista: [], idx: 0 } por contenedor
+const _estadoComunicados = {}; // almacena { lista: [], idx: 0, timer } por contenedor
+const DURACION_SLIDE_AVISO_MS = 5000;
 
 function extraerDriveId(url) {
   if (!url) return '';
@@ -178,6 +209,7 @@ function extraerDriveId(url) {
 function cargarComunicados(contenedorId) {
   const cont = document.getElementById(contenedorId);
   if (!cont) return;
+  detenerAutoplayAviso(contenedorId);
   llamarAPI('getComunicados', { idUsuario: SESION.idUsuario })
     .then(function (r) {
       const comunicados = r.comunicados || [];
@@ -185,9 +217,28 @@ function cargarComunicados(contenedorId) {
         cont.innerHTML = '<h3 style="margin:0; color:#ffffff !important; font-size:13px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; opacity:1 !important;">📢 Avisos del conjunto</h3><p style="color:#ffffff; opacity:.9; font-size:13px; margin:8px 0 0 0;">No hay avisos vigentes por ahora.</p>';
         return;
       }
-      _estadoComunicados[contenedorId] = { lista: comunicados, idx: 0 };
+      _estadoComunicados[contenedorId] = { lista: comunicados, idx: 0, timer: null };
       renderComunicadoSlide(contenedorId);
+      iniciarAutoplayAviso(contenedorId);
     });
+}
+
+// ✅ Autoplay tipo "Estado de WhatsApp": con más de 3 avisos, pasan
+// solos cada pocos segundos con una barrita de progreso arriba.
+// Con 3 o menos, el usuario los pasa manualmente con las flechas/puntos.
+function iniciarAutoplayAviso(contenedorId) {
+  const st = _estadoComunicados[contenedorId];
+  if (!st || st.lista.length <= 3) return;
+  detenerAutoplayAviso(contenedorId);
+  st.timer = setInterval(function () {
+    st.idx += 1;
+    renderComunicadoSlide(contenedorId);
+  }, DURACION_SLIDE_AVISO_MS);
+}
+
+function detenerAutoplayAviso(contenedorId) {
+  const st = _estadoComunicados[contenedorId];
+  if (st && st.timer) { clearInterval(st.timer); st.timer = null; }
 }
 
 function renderComunicadoSlide(contenedorId) {
@@ -218,8 +269,18 @@ function renderComunicadoSlide(contenedorId) {
       </div>`;
   }
 
+  // Con más de 3 avisos se muestran barritas de progreso (estilo estado
+  // de WhatsApp) en vez de los puntos, porque avanzan solas.
+  let progresoHtml = '';
   let dotsHtml = '';
-  if (total > 1) {
+  if (total > 3) {
+    progresoHtml = '<div class="anuncios-progreso">' +
+      st.lista.map(function (_, i) {
+        const clase = i < st.idx ? 'completa' : (i === st.idx ? 'activa' : '');
+        return '<div class="barra ' + clase + '"><div class="relleno"></div></div>';
+      }).join('') +
+      '</div>';
+  } else if (total > 1) {
     dotsHtml = '<div class="anuncios-dots">' +
       st.lista.map(function (_, i) {
         return `<span class="dot-aviso ${i === st.idx ? 'activo' : ''}" onclick="irASlideAviso('${contenedorId}', ${i})"></span>`;
@@ -237,6 +298,7 @@ function renderComunicadoSlide(contenedorId) {
   }
 
   cont.innerHTML = `
+    ${progresoHtml}
     <div class="anuncios-header-row">
       <h3 style="margin:0; color:#ffffff !important; font-size:13px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; opacity:1 !important;">📢 Avisos del conjunto</h3>
       ${navHtml}
@@ -252,6 +314,19 @@ function renderComunicadoSlide(contenedorId) {
     </div>
     ${dotsHtml}
   `;
+
+  // Fuerza el reinicio de la animación de la barra activa (si el
+  // elemento ya nace con width:100% no se ve la transición).
+  if (total > 3) {
+    const relleno = cont.querySelector('.barra.activa .relleno');
+    if (relleno) {
+      relleno.style.transition = 'none';
+      relleno.style.width = '0%';
+      void relleno.offsetWidth; // fuerza reflow
+      relleno.style.transition = 'width ' + DURACION_SLIDE_AVISO_MS + 'ms linear';
+      relleno.style.width = '100%';
+    }
+  }
 }
 
 function cambiarSlideAviso(contenedorId, dir) {
@@ -259,6 +334,7 @@ function cambiarSlideAviso(contenedorId, dir) {
   if (!st) return;
   st.idx += dir;
   renderComunicadoSlide(contenedorId);
+  iniciarAutoplayAviso(contenedorId); // reinicia el conteo tras interacción manual
 }
 
 function irASlideAviso(contenedorId, index) {
@@ -266,6 +342,7 @@ function irASlideAviso(contenedorId, index) {
   if (!st) return;
   st.idx = index;
   renderComunicadoSlide(contenedorId);
+  iniciarAutoplayAviso(contenedorId);
 }
 
 /* ---------------- RESIDENTE ---------------- */
@@ -429,6 +506,41 @@ function cargarHistorialPagos() {
         cont.innerHTML += '<div class="item-lista">$' + Number(p.Valor).toLocaleString('es-CO') + ' — ' + p.Periodo_Pago +
           ' <span class="badge ' + clase + '">' + p.Estado + '</span></div>';
       });
+    });
+}
+
+// ✅ Genera el estado de cuenta completo bajo demanda: cargos
+// itemizados (concepto por concepto, igual que el estado de cuenta
+// oficial del conjunto), total pagado y saldo final.
+function generarEstadoCuentaUI() {
+  const cont = document.getElementById('detalle-estado-cuenta');
+  cont.innerHTML = '<p style="font-size:13px; color:var(--texto-suave);">Generando...</p>';
+  llamarAPI('getEstadoCuenta', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
+    .then(function (r) {
+      if (!r.ok) { cont.innerHTML = '<p style="color:var(--rojo)">No se pudo generar el estado de cuenta.</p>'; return; }
+      const cargos = r.cargos || [];
+      const filasCargos = cargos.length
+        ? cargos.map(function (c) {
+            return '<div class="item-lista"><b>' + c.Concepto + '</b> (' + c.Periodo + ')' +
+              '<br><span style="font-size:13px; color:var(--texto-suave);">' + formatearFecha(c.Fecha) + ' — $' + Number(c.Valor || 0).toLocaleString('es-CO') + '</span></div>';
+          }).join('')
+        : '<p style="font-size:13px; color:var(--texto-suave);">No tienes cargos asignados todavía.</p>';
+
+      cont.innerHTML = `
+        <div class="card" style="background:var(--verde-claro); margin-top:10px;">
+          <p style="margin:0 0 4px 0; font-size:13px;">Total cargado: <b>$${Number(r.totalCargos || 0).toLocaleString('es-CO')}</b></p>
+          <p style="margin:0 0 4px 0; font-size:13px;">Total pagado (validado): <b>$${Number(r.totalPagado || 0).toLocaleString('es-CO')}</b></p>
+          <p style="margin:0; font-size:15px; font-weight:800; color:${r.estado === 'Mora' ? 'var(--rojo)' : 'var(--verde-oscuro)'};">
+            ${r.estado === 'Mora' ? '🔴 Saldo pendiente: $' + Number(r.saldo).toLocaleString('es-CO') : '🟢 Estás al día'}
+          </p>
+        </div>
+        <p style="font-size:13px; font-weight:700; margin:14px 0 6px 0;">Detalle de cargos:</p>
+        ${filasCargos}
+        <button class="secundario" style="margin-top:10px;" onclick="window.print()">🖨️ Imprimir / guardar como PDF</button>
+      `;
+    })
+    .catch(function (err) {
+      cont.innerHTML = '<p style="color:var(--rojo)">Error: ' + err.message + '</p>';
     });
 }
 
@@ -655,10 +767,8 @@ function canvasTieneFirma(canvas) {
 
 function registrarAccesoPiscinaUI() {
   const fecha = document.getElementById('piscina-fecha').value;
-  const edadTitular = document.getElementById('piscina-edad-titular').value;
   const numAcompanantes = parseInt(document.getElementById('piscina-acompanantes').value, 10) || 0;
   if (!fecha) { alert('Selecciona la fecha'); return; }
-  if (!edadTitular) { alert('Indica tu edad'); return; }
 
   const acompanantes = [];
   for (let i = 0; i < numAcompanantes; i++) {
@@ -681,13 +791,12 @@ function registrarAccesoPiscinaUI() {
   mostrarCargando(true);
   llamarAPI('registrarAccesoPiscina', {
     idUsuario: SESION.idUsuario, idApto: SESION.idApto,
-    fecha: fecha, edadTitular: edadTitular, acompanantes: acompanantes
+    fecha: fecha, acompanantes: acompanantes
   }).then(function (r) {
     mostrarCargando(false);
     const el = document.getElementById('piscina-resultado');
     if (!r.ok) { el.innerHTML = '<span style="color:var(--rojo)">' + r.mensaje + '</span>'; return; }
     el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Acceso solicitado.</span>';
-    document.getElementById('piscina-edad-titular').value = '';
     document.getElementById('piscina-acompanantes').value = '';
     document.getElementById('piscina-acompanantes-rows').innerHTML = '';
     cargarMisAccesosPiscina();
@@ -711,7 +820,6 @@ function cargarMisAccesosPiscina() {
           : '';
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + a.Fecha + '</b> <span class="badge ' + clase + '">' + a.Estado + '</span>' +
-          (a.Edad_Titular ? '<br><span style="font-size:13px; color:var(--texto-suave);">Titular: ' + a.Edad_Titular + ' años</span>' : '') +
           (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)' + (nombresTxt ? ': ' + nombresTxt : '') + '</span>' : '') +
           '</div>';
       });
@@ -906,7 +1014,6 @@ function cargarPiscinaHoy() {
             }).join('') + '</div>'
           : '';
         cont.innerHTML += '<div class="item-lista"><b>Apto ' + a.ID_Apto + '</b>' +
-          (a.Edad_Titular ? ' — Titular: ' + a.Edad_Titular + ' años' : '') +
           (a.Num_Acompanantes ? ' — 👥 ' + a.Num_Acompanantes + ' acompañante(s)' : '') +
           detalleHtml +
           '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoPiscinaUI(\'' + a.ID_Acceso + '\')">✅ Marcar ingreso</button></div>';
@@ -1159,6 +1266,7 @@ function publicarComunicadoUI() {
   const titulo = document.getElementById('an-titulo').value.trim();
   const contenido = document.getElementById('an-contenido').value.trim();
   const dirigidoA = document.getElementById('an-dirigido').value;
+  const fechaPublicacion = document.getElementById('an-publicacion').value;
   const fechaExpiracion = document.getElementById('an-expiracion').value;
   const archivo = document.getElementById('an-imagen').files[0];
   if (!titulo || !contenido) { alert('Completa el título y el mensaje'); return; }
@@ -1167,7 +1275,7 @@ function publicarComunicadoUI() {
     mostrarCargando(true);
     llamarAPI('crearComunicado', {
       idUsuario: SESION.idUsuario, titulo: titulo, contenido: contenido,
-      dirigidoA: dirigidoA, fechaExpiracion: fechaExpiracion,
+      dirigidoA: dirigidoA, fechaPublicacion: fechaPublicacion, fechaExpiracion: fechaExpiracion,
       base64: base64 || '', nombreArchivo: nombreArchivo || '', mimeType: mimeType || ''
     }).then(function (r) {
       mostrarCargando(false);
@@ -1176,6 +1284,7 @@ function publicarComunicadoUI() {
       el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ Comunicado publicado.</span>';
       document.getElementById('an-titulo').value = '';
       document.getElementById('an-contenido').value = '';
+      document.getElementById('an-publicacion').value = '';
       document.getElementById('an-expiracion').value = '';
       document.getElementById('an-imagen').value = '';
       cargarComunicadosAdmin();
@@ -1199,15 +1308,21 @@ function cargarComunicadosAdmin() {
       const cont = document.getElementById('lista-comunicados-admin');
       const comunicados = r.comunicados || [];
       cont.innerHTML = comunicados.length ? '' : '<p>No hay comunicados publicados todavía.</p>';
+      const ahora = new Date();
       const hoy = new Date().setHours(0, 0, 0, 0);
       comunicados.forEach(function (c) {
-        const vigente = !c.Fecha_Expiracion || new Date(c.Fecha_Expiracion).setHours(0, 0, 0, 0) >= hoy;
+        const programado = c.Fecha_Publicacion && new Date(c.Fecha_Publicacion) > ahora;
+        const vigente = !programado && (!c.Fecha_Expiracion || new Date(c.Fecha_Expiracion).setHours(0, 0, 0, 0) >= hoy);
+        const estadoBadge = programado
+          ? '<span class="badge pendiente">Programado</span>'
+          : '<span class="badge ' + (vigente ? 'autorizado' : 'no-autorizado') + '">' + (vigente ? 'Publicado' : 'Vencido') + '</span>';
         cont.innerHTML += '<div class="item-lista">' +
-          '<b>' + c.Titulo + '</b> <span class="badge ' + (vigente ? 'autorizado' : 'no-autorizado') + '">' + (vigente ? 'Publicado' : 'Vencido') + '</span>' +
+          '<b>' + c.Titulo + '</b> ' + estadoBadge +
           ' <span class="badge pendiente">' + (c.Dirigido_A || 'Todos') + '</span>' +
+          (programado ? '<br><span style="font-size:12px; color:var(--texto-suave);">📅 Se publicará el ' + formatearFecha(String(c.Fecha_Publicacion).split('T')[0] || c.Fecha_Publicacion) + '</span>' : '') +
           '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Contenido + '</span>' +
           (c.Adjunto_URL ? '<img class="miniatura-aviso" src="' + c.Adjunto_URL + '">' : '') +
-          (vigente ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="retirarComunicadoUI(\'' + c.ID_Comunicado + '\')">Retirar</button>' : '') +
+          ((vigente || programado) ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="retirarComunicadoUI(\'' + c.ID_Comunicado + '\')">Retirar</button>' : '') +
           '</div>';
       });
     });
@@ -1537,6 +1652,14 @@ function atenderAlertaAdminUI(idAlerta) {
 }
 
 /* ---------------- ADMIN · CARGOS / CUOTAS ---------------- */
+function alternarConceptoCargoOtro() {
+  const select = document.getElementById('cg-concepto');
+  const otro = document.getElementById('cg-concepto-otro');
+  const esOtro = select.value === 'Otro';
+  otro.classList.toggle('oculto', !esOtro);
+  if (esOtro) otro.focus();
+}
+
 function cargarApartamentosCargosSelect() {
   const select = document.getElementById('cg-apto');
   if (!select || select.options.length) return;
@@ -1561,7 +1684,10 @@ function cargarApartamentosCargosSelect() {
 
 function crearCargoUI() {
   const idApto = document.getElementById('cg-apto').value;
-  const concepto = document.getElementById('cg-concepto').value.trim();
+  const select = document.getElementById('cg-concepto');
+  const concepto = select.value === 'Otro'
+    ? document.getElementById('cg-concepto-otro').value.trim()
+    : select.value;
   const valor = document.getElementById('cg-valor').value;
   const periodo = document.getElementById('cg-periodo').value.trim();
 
@@ -1585,7 +1711,9 @@ function crearCargoUI() {
       return;
     }
     el.innerHTML = '<span style="color:var(--verde-oscuro)">✅ ' + r.mensaje + '</span>';
-    document.getElementById('cg-concepto').value = '';
+    document.getElementById('cg-concepto-otro').value = '';
+    document.getElementById('cg-concepto-otro').classList.add('oculto');
+    select.selectedIndex = 0;
     document.getElementById('cg-valor').value = '';
     document.getElementById('cg-periodo').value = '';
     cargarCargosAdmin();
@@ -2110,3 +2238,6 @@ function actualizarEstadoVehiculoAdminUI(idVehiculo, nuevoEstado) {
       cargarTodosVehiculosAdmin();
     });
 }
+
+/* ---------------- INICIO: restaurar sesión si ya había una activa ---------------- */
+restaurarSesion();
