@@ -319,12 +319,46 @@ button.rojo { background: var(--rojo); }
 .img-comunicado {
   width: 100%;
   max-height: 420px;
-  object-fit: contain;
+  /* ✅ FIX: la regla ".anuncio-item img" (más abajo) tenía más
+     especificidad que ".img-comunicado" y ganaba con object-fit:
+     cover, recortando las imágenes de los avisos. Se fuerza aquí
+     con !important para que la imagen siempre se vea completa. */
+  object-fit: contain !important;
   border-radius: 12px;
   margin-top: 10px;
   display: block;
   box-shadow: 0 4px 14px rgba(0,0,0,0.22);
   background: rgba(255,255,255,0.12);
+}
+
+/* ---- Barras de progreso tipo "Estado de WhatsApp" para avisos ---- */
+.anuncios-progreso {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.anuncios-progreso .barra {
+  flex: 1;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+}
+.anuncios-progreso .barra .relleno {
+  height: 100%;
+  width: 0%;
+  background: #ffffff;
+  border-radius: 3px;
+}
+.anuncios-progreso .barra.completa .relleno { width: 100%; transition: none; }
+.anuncios-progreso .barra.activa .relleno { width: 100%; transition: width 5s linear; }
+
+/* ---- Texto de ayuda debajo de campos que pueden ser confusos ---- */
+.campo-ayuda {
+  display: block;
+  font-size: 12px;
+  color: var(--texto-suave);
+  margin: -6px 0 10px 2px;
 }
 
 
