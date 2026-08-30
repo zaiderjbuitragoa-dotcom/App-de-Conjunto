@@ -509,6 +509,10 @@ function cargarHistorialPagos() {
     });
 }
 
+// Guarda el último estado de cuenta generado para poder crear el
+// PDF sin volver a llamar al backend.
+let _ultimoEstadoCuenta = null;
+
 // ✅ Genera el estado de cuenta completo bajo demanda: cargos
 // itemizados (concepto por concepto, igual que el estado de cuenta
 // oficial del conjunto), total pagado y saldo final.
@@ -518,6 +522,7 @@ function generarEstadoCuentaUI() {
   llamarAPI('getEstadoCuenta', { idUsuario: SESION.idUsuario, idApto: SESION.idApto })
     .then(function (r) {
       if (!r.ok) { cont.innerHTML = '<p style="color:var(--rojo)">No se pudo generar el estado de cuenta.</p>'; return; }
+      _ultimoEstadoCuenta = r;
       const cargos = r.cargos || [];
       const filasCargos = cargos.length
         ? cargos.map(function (c) {
@@ -536,12 +541,74 @@ function generarEstadoCuentaUI() {
         </div>
         <p style="font-size:13px; font-weight:700; margin:14px 0 6px 0;">Detalle de cargos:</p>
         ${filasCargos}
-        <button class="secundario" style="margin-top:10px;" onclick="window.print()">🖨️ Imprimir / guardar como PDF</button>
+        <button class="secundario" style="margin-top:10px;" onclick="generarPDFEstadoCuentaUI()">📄 Descargar PDF</button>
       `;
     })
     .catch(function (err) {
       cont.innerHTML = '<p style="color:var(--rojo)">Error: ' + err.message + '</p>';
     });
+}
+
+// ✅ FIX: antes el botón hacía window.print(), que abre el diálogo
+// de impresión de TODA la página (menú, otros paneles, etc.), no
+// solo el estado de cuenta. Ahora se genera un archivo PDF real,
+// con únicamente los datos del estado de cuenta, usando jsPDF.
+function generarPDFEstadoCuentaUI() {
+  const r = _ultimoEstadoCuenta;
+  if (!r) return;
+  const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!jsPDFCtor) { alert('No se pudo cargar el generador de PDF. Revisa tu conexión e inténtalo de nuevo.'); return; }
+
+  const doc = new jsPDFCtor({ unit: 'pt', format: 'letter' });
+  const margenIzq = 48;
+  let y = 56;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('Estado de cuenta', margenIzq, y);
+  y += 22;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.text('Apartamento: ' + (SESION.idApto || ''), margenIzq, y);
+  y += 16;
+  doc.text('Generado: ' + new Date().toLocaleDateString('es-CO'), margenIzq, y);
+  y += 26;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Total cargado: $' + Number(r.totalCargos || 0).toLocaleString('es-CO'), margenIzq, y);
+  y += 16;
+  doc.text('Total pagado (validado): $' + Number(r.totalPagado || 0).toLocaleString('es-CO'), margenIzq, y);
+  y += 16;
+  doc.setTextColor(r.estado === 'Mora' ? 200 : 0, r.estado === 'Mora' ? 30 : 120, 0);
+  doc.text(r.estado === 'Mora' ? 'Saldo pendiente: $' + Number(r.saldo).toLocaleString('es-CO') : 'Estas al dia', margenIzq, y);
+  doc.setTextColor(0, 0, 0);
+  y += 30;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Detalle de cargos', margenIzq, y);
+  y += 18;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+
+  const cargos = r.cargos || [];
+  if (!cargos.length) {
+    doc.text('No tienes cargos asignados todavía.', margenIzq, y);
+    y += 16;
+  } else {
+    cargos.forEach(function (c) {
+      if (y > 740) { doc.addPage(); y = 56; }
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(c.Concepto || '') + ' (' + (c.Periodo || '') + ')', margenIzq, y);
+      y += 14;
+      doc.setFont('helvetica', 'normal');
+      doc.text(formatearFecha(c.Fecha) + ' — $' + Number(c.Valor || 0).toLocaleString('es-CO'), margenIzq, y);
+      y += 18;
+    });
+  }
+
+  doc.save('estado-de-cuenta-' + (SESION.idApto || '') + '.pdf');
 }
 
 function cargarMisVehiculos() {
@@ -661,7 +728,7 @@ function cargarMisReservas() {
       cont.innerHTML = reservas.length ? '' : '<p>No tienes reservas.</p>';
       reservas.forEach(function (res) {
         const clase = res.Estado === 'Confirmada' ? 'validado' : (res.Estado === 'Cancelada' ? 'rechazado' : 'pendiente');
-        cont.innerHTML += '<div class="item-lista"><b>' + res.Nombre_Zona + '</b> — ' + res.Fecha + ' (' + res.Hora_Inicio + ' - ' + res.Hora_Fin + ')' +
+        cont.innerHTML += '<div class="item-lista"><b>' + res.Nombre_Zona + '</b> — ' + formatearFecha(res.Fecha) + ' (' + formatearHora(res.Hora_Inicio) + ' - ' + formatearHora(res.Hora_Fin) + ')' +
           ' <span class="badge ' + clase + '">' + res.Estado + '</span>' +
           (res.Estado === 'Confirmada' ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="cancelarReservaUI(\'' + res.ID_Reserva + '\')">Cancelar</button>' : '') +
           '</div>';
@@ -819,7 +886,7 @@ function cargarMisAccesosPiscina() {
           ? detalle.map(function (d) { return d.nombre + (d.edad ? ' (' + d.edad + ' años)' : ''); }).join(', ')
           : '';
         cont.innerHTML += '<div class="item-lista">' +
-          '<b>' + a.Fecha + '</b> <span class="badge ' + clase + '">' + a.Estado + '</span>' +
+          '<b>' + formatearFecha(a.Fecha) + '</b> <span class="badge ' + clase + '">' + a.Estado + '</span>' +
           (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)' + (nombresTxt ? ': ' + nombresTxt : '') + '</span>' : '') +
           '</div>';
       });
@@ -837,7 +904,7 @@ function cargarMisMultas() {
         const clase = m.Estado === 'Pagada' ? 'validado' : (m.Estado === 'Anulada' ? 'rechazado' : 'pendiente');
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + m.Motivo + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
-          '<br><span style="font-size:13px; color:var(--texto-suave);">💲 $' + m.Valor + ' — ' + m.Fecha + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">💲 $' + m.Valor + ' — ' + formatearFecha(m.Fecha) + '</span>' +
           (m.Evidencia_URL ? '<br><a href="' + m.Evidencia_URL + '" target="_blank" style="font-size:13px; color:var(--verde-oscuro);">Ver evidencia</a>' : '') +
           '</div>';
       });
@@ -873,7 +940,7 @@ function cargarMisPQRS() {
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + p.Tipo + '</b> <span class="badge ' + clase + '">' + p.Estado + '</span>' +
           '<br><span style="font-size:13px; color:var(--texto-suave);">' + p.Descripcion + '</span>' +
-          '<br><span style="font-size:12px; color:var(--texto-suave);">' + p.Fecha + '</span>' +
+          '<br><span style="font-size:12px; color:var(--texto-suave);">' + formatearFecha(p.Fecha) + '</span>' +
           (p.Respuesta ? '<br><div style="margin-top:6px; padding:8px 10px; background:var(--verde-claro); border-radius:8px; font-size:13px;"><b>Respuesta:</b> ' + p.Respuesta + '</div>' : '') +
           '</div>';
       });
@@ -997,12 +1064,17 @@ function reportarMantenimientoVigilanciaUI() {
 }
 
 /* ---------------- PISCINA (vigilancia) ---------------- */
+// ✅ FIX: ahora la lista incluye los accesos ya autorizados (Estado
+// 'Ingresó') además de los pendientes, así que ya no "desaparecen"
+// al marcar el ingreso — simplemente se les quita el botón y se les
+// pone el badge de "Ingresó". Solo se muestran los de HOY, y si no
+// hay ninguno, el contenedor queda vacío (sin texto de "no hay...").
 function cargarPiscinaHoy() {
   llamarAPI('getAccesosPiscinaHoy', { idUsuario: SESION.idUsuario })
     .then(function (r) {
       const cont = document.getElementById('lista-piscina-hoy');
       const accesos = r.accesos || [];
-      cont.innerHTML = accesos.length ? '' : '<p>No hay accesos a la piscina programados para hoy.</p>';
+      cont.innerHTML = '';
       accesos.forEach(function (a) {
         const detalle = Array.isArray(a.Acompanantes_Detalle) ? a.Acompanantes_Detalle : [];
         const detalleHtml = detalle.length
@@ -1013,10 +1085,13 @@ function cargarPiscinaHoy() {
                 '</div>';
             }).join('') + '</div>'
           : '';
+        const yaIngreso = a.Estado === 'Ingresó';
         cont.innerHTML += '<div class="item-lista"><b>Apto ' + a.ID_Apto + '</b>' +
+          ' <span class="badge ' + (yaIngreso ? 'validado' : 'pendiente') + '">' + a.Estado + '</span>' +
           (a.Num_Acompanantes ? ' — 👥 ' + a.Num_Acompanantes + ' acompañante(s)' : '') +
           detalleHtml +
-          '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoPiscinaUI(\'' + a.ID_Acceso + '\')">✅ Marcar ingreso</button></div>';
+          (yaIngreso ? '' : '<br><button class="verde" style="margin-top:6px;" onclick="marcarIngresoPiscinaUI(\'' + a.ID_Acceso + '\')">✅ Marcar ingreso</button>') +
+          '</div>';
       });
     });
 }
@@ -1120,7 +1195,7 @@ function cargarActasVigilancia() {
       const actas = (r.actas || []).slice(0, 10);
       cont.innerHTML = actas.length ? '' : '<p>No hay actas registradas.</p>';
       actas.forEach(function (a) {
-        cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + a.Fecha +
+        cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + formatearFecha(a.Fecha) +
           '<br><span style="font-size:13px; color:var(--texto-suave);">Entrega: ' + a.Guardia_Entrega + (a.Guardia_Recibe ? ' → Recibe: ' + a.Guardia_Recibe : '') + '</span>' +
           (a.Observaciones ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Observaciones + '</span>' : '') +
           '</div>';
@@ -1149,10 +1224,11 @@ function mostrarPanelAdmin(panel) {
   if (panel === 'pqrs') cargarPQRSAdmin();
   if (panel === 'mantenimiento') cargarMantenimientoAdmin();
   if (panel === 'sos') cargarAlertasSOSAdmin();
+  if (panel === 'piscina') cargarPiscinaHoyAdmin();
 }
 
 function cerrarModuloAdmin() {
-  ['vehiculos', 'pagos', 'cargos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos'].forEach(function (p) {
+  ['vehiculos', 'pagos', 'cargos', 'aprobaciones', 'anuncios', 'zonas', 'guardas', 'multas', 'pqrs', 'mantenimiento', 'sos', 'piscina'].forEach(function (p) {
     document.getElementById('admin-panel-' + p).classList.add('oculto');
   });
   cargarDashboardAdmin();
@@ -1393,7 +1469,7 @@ function cargarReservasPendientesAdmin() {
       reservas.forEach(function (res) {
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + res.Nombre_Zona + '</b> — Apto ' + res.ID_Apto + '<br>' +
-          res.Fecha + ' (' + res.Hora_Inicio + ' - ' + res.Hora_Fin + ')' +
+          formatearFecha(res.Fecha) + ' (' + formatearHora(res.Hora_Inicio) + ' - ' + formatearHora(res.Hora_Fin) + ')' +
           '<br><button style="margin-top:8px; width:auto; padding:8px 14px;" onclick="resolverReservaUI(\'' + res.ID_Reserva + '\', \'Confirmada\')">Aprobar</button> ' +
           '<button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="resolverReservaUI(\'' + res.ID_Reserva + '\', \'Rechazada\')">Rechazar</button>' +
           '</div>';
@@ -1464,6 +1540,30 @@ function toggleGuardiaUI(idUsuarioObjetivo) {
     });
 }
 
+/* ---------------- ADMIN · PISCINA HOY (solo lectura) ---------------- */
+// Misma fuente que portería (getAccesosPiscinaHoy): solo los accesos
+// de HOY, incluidos los ya autorizados. Si no hay ninguno, no se
+// muestra ningún mensaje.
+function cargarPiscinaHoyAdmin() {
+  llamarAPI('getAccesosPiscinaHoy', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-piscina-hoy-admin');
+      const accesos = r.accesos || [];
+      cont.innerHTML = '';
+      accesos.forEach(function (a) {
+        const detalle = Array.isArray(a.Acompanantes_Detalle) ? a.Acompanantes_Detalle : [];
+        const nombresTxt = detalle.length
+          ? detalle.map(function (d) { return d.nombre + (d.edad ? ' (' + d.edad + ' años)' : ''); }).join(', ')
+          : '';
+        const clase = a.Estado === 'Ingresó' ? 'validado' : 'pendiente';
+        cont.innerHTML += '<div class="item-lista"><b>Apto ' + a.ID_Apto + '</b>' +
+          ' <span class="badge ' + clase + '">' + a.Estado + '</span>' +
+          (a.Num_Acompanantes ? '<br><span style="font-size:13px; color:var(--texto-suave);">👥 ' + a.Num_Acompanantes + ' acompañante(s)' + (nombresTxt ? ': ' + nombresTxt : '') + '</span>' : '') +
+          '</div>';
+      });
+    });
+}
+
 /* ---------------- ADMIN · ACTAS DE VIGILANCIA (solo lectura) ---------------- */
 function cargarActasAdmin() {
   llamarAPI('getActasVigilancia', { idUsuario: SESION.idUsuario })
@@ -1472,7 +1572,7 @@ function cargarActasAdmin() {
       const actas = (r.actas || []).slice(0, 15);
       cont.innerHTML = actas.length ? '' : '<p>No hay actas registradas todavía.</p>';
       actas.forEach(function (a) {
-        cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + a.Fecha +
+        cont.innerHTML += '<div class="item-lista"><b>' + a.Turno + '</b> — ' + formatearFecha(a.Fecha) +
           '<br><span style="font-size:13px; color:var(--texto-suave);">Entrega: ' + a.Guardia_Entrega + (a.Guardia_Recibe ? ' → Recibe: ' + a.Guardia_Recibe : '') + '</span>' +
           (a.Observaciones ? '<br><span style="font-size:13px; color:var(--texto-suave);">' + a.Observaciones + '</span>' : '') +
           '</div>';
@@ -1540,7 +1640,7 @@ function cargarMultasAdmin() {
         const clase = m.Estado === 'Pagada' ? 'validado' : (m.Estado === 'Anulada' ? 'rechazado' : 'pendiente');
         cont.innerHTML += '<div class="item-lista">' +
           '<b>Apto ' + m.ID_Apto + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
-          '<br><span style="font-size:13px; color:var(--texto-suave);">' + m.Motivo + ' — $' + m.Valor + ' — ' + m.Fecha + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + m.Motivo + ' — $' + m.Valor + ' — ' + formatearFecha(m.Fecha) + '</span>' +
           (m.Evidencia_URL ? '<br><a href="' + m.Evidencia_URL + '" target="_blank" style="font-size:13px; color:var(--verde-oscuro);">Ver evidencia</a>' : '') +
           (m.Estado === 'Pendiente'
             ? '<br><button class="verde" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMultaUI(\'' + m.ID_Multa + '\', \'Pagada\')">Marcar pagada</button> ' +
@@ -1571,7 +1671,7 @@ function cargarPQRSAdmin() {
         const clase = p.Estado === 'Cerrado' ? 'validado' : 'pendiente';
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + p.Tipo + '</b> <span class="badge ' + clase + '">' + p.Estado + '</span>' +
-          '<br><span style="font-size:13px; color:var(--texto-suave);">Apto ' + p.ID_Apto + ' — ' + p.Fecha + '</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">Apto ' + p.ID_Apto + ' — ' + formatearFecha(p.Fecha) + '</span>' +
           '<br><span style="font-size:13px;">' + p.Descripcion + '</span>' +
           (p.Respuesta
             ? '<br><div style="margin-top:6px; padding:8px 10px; background:var(--verde-claro); border-radius:8px; font-size:13px;"><b>Respuesta:</b> ' + p.Respuesta + '</div>'
@@ -1607,7 +1707,7 @@ function cargarMantenimientoAdmin() {
         cont.innerHTML += '<div class="item-lista">' +
           '<b>' + m.Zona_Area + '</b> <span class="badge ' + clase + '">' + m.Estado + '</span>' +
           '<br><span style="font-size:13px; color:var(--texto-suave);">' + m.Descripcion + '</span>' +
-          '<br><span style="font-size:12px; color:var(--texto-suave);">Reportado: ' + m.Fecha_Reporte + '</span>' +
+          '<br><span style="font-size:12px; color:var(--texto-suave);">Reportado: ' + formatearFecha(m.Fecha_Reporte) + '</span>' +
           (m.Estado !== 'Resuelto'
             ? '<br><button style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'En proceso\')">En proceso</button> ' +
               '<button class="verde" style="margin-top:6px; width:auto; padding:8px 14px;" onclick="actualizarEstadoMantenimientoUI(\'' + m.ID_Mantenimiento + '\', \'Resuelto\')">Marcar resuelto</button>'
