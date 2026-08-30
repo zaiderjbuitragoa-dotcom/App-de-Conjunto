@@ -140,8 +140,8 @@ button.rojo { background: var(--rojo); }
   margin: 0;
   width: 100%;
 }
-.modulo-card:hover { box-shadow: 0 6px 18px rgba(15, 23, 42, 0.10); }
-.modulo-card:active { transform: scale(0.97); }
+.modulo-card:hover { background: var(--blanco); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.10); }
+.modulo-card:active { background: var(--verde-claro); transform: scale(0.97); }
 .modulo-icono { font-size: 34px; line-height: 1; }
 .modulo-nombre { font-weight: 700; font-size: 13px; color: var(--texto); }
 .modulo-badge {
