@@ -412,6 +412,10 @@
         <h3>⏳ Reservas pendientes de aprobación</h3>
         <div id="lista-reservas-pendientes"></div>
       </div>
+      <div class="card">
+        <h3>✅ Reservas confirmadas</h3>
+        <div id="lista-reservas-confirmadas"></div>
+      </div>
     </div>
 
     <div id="admin-panel-guardas" class="panel-modal oculto"><div class="modal-header"><h2>🛡️ Guardas</h2><button class="btn-cerrar-modal" onclick="cerrarModuloAdmin()">← Volver</button></div>
@@ -535,6 +539,12 @@
 <button class="modulo-card" onclick="mostrarPanelAdmin('piscina')"><span class="modulo-icono">🏊</span><span class="modulo-nombre">Piscina</span></button>
 <button class="modulo-card" onclick="mostrarPanelAdmin('sos')"><span class="modulo-badge oculto" id="badge-admin-sos"></span><span class="modulo-icono">🆘</span><span class="modulo-nombre">Alertas SOS</span></button>
 </div></div>
+
+  <!-- Lightbox: ampliar imagen completa al hacer click -->
+  <div id="lightbox-overlay" class="lightbox-overlay oculto" onclick="cerrarImagenCompleta()">
+    <button class="lightbox-cerrar" onclick="cerrarImagenCompleta()">✕</button>
+    <img id="lightbox-img" src="" alt="Imagen ampliada">
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
