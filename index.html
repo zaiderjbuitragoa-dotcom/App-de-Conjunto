@@ -89,7 +89,9 @@
         <h3>👥 Registrar visita</h3>
         <input type="text" id="visita-nombre" placeholder="Nombre del visitante">
         <input type="text" id="visita-doc" placeholder="Documento del visitante">
+        <label class="campo-ayuda" style="margin-top:0;">Fecha esperada de la visita</label>
         <input type="date" id="visita-fecha">
+        <label class="campo-ayuda" style="margin-top:0;">Hora esperada de la visita</label>
         <input type="time" id="visita-hora">
         <button onclick="registrarVisitaUI()">Registrar visita</button>
         <p id="visita-resultado"></p>
@@ -108,6 +110,12 @@
         <input type="file" id="pago-archivo" accept="image/*,.pdf">
         <button onclick="subirComprobanteUI()">Subir</button>
         <p id="pago-resultado"></p>
+      </div>
+      <div class="card">
+        <h3>📄 Estado de cuenta</h3>
+        <p style="font-size:13px; color:var(--texto-suave); margin-top:-6px;">Genera el detalle completo de tus cargos y pagos cuando lo necesites, para saber exactamente cómo estás o si debes algo adicional.</p>
+        <button class="secundario" onclick="generarEstadoCuentaUI()">Generar mi estado de cuenta</button>
+        <div id="detalle-estado-cuenta"></div>
       </div>
       <div class="card">
         <h3>Historial de pagos</h3>
@@ -144,7 +152,9 @@
       <div class="card" id="form-reservar-zona">
         <h3>📅 Reservar zona</h3>
         <select id="reserva-zona"></select>
+        <label class="campo-ayuda" style="margin-top:0;">Fecha en la que quieres usar la zona</label>
         <input type="date" id="reserva-fecha">
+        <label class="campo-ayuda" style="margin-top:0;">Hora de inicio y hora de fin de tu reserva</label>
         <div style="display:flex; gap:10px;">
           <input type="time" id="reserva-hora-inicio" style="width:50%;">
           <input type="time" id="reserva-hora-fin" style="width:50%;">
@@ -168,9 +178,10 @@
     <div id="res-panel-piscina" class="panel-modal oculto"><div class="modal-header"><h2>🏊 Piscina</h2><button class="btn-cerrar-modal" onclick="cerrarModuloResidente()">← Volver</button></div>
       <div class="card">
         <h3>🏊 Solicitar acceso a piscina</h3>
+        <label class="campo-ayuda" style="margin-top:0;">Fecha en la que vas a usar la piscina</label>
         <input type="date" id="piscina-fecha">
-        <input type="number" id="piscina-edad-titular" placeholder="Tu edad" min="0">
         <input type="number" id="piscina-acompanantes" placeholder="N.° de acompañantes" min="0" onchange="actualizarFilasAcompanantesPiscina()">
+        <small class="campo-ayuda">👥 Cuántas personas adicionales a ti van a entrar contigo (no cuentes tu propio ingreso). Si son más de 2, deberás indicar nombre, edad y firma de cada una.</small>
         <div id="piscina-acompanantes-rows"></div>
         <button onclick="registrarAccesoPiscinaUI()">Solicitar acceso</button>
         <p id="piscina-resultado"></p>
@@ -363,7 +374,9 @@
           <option value="Residentes">Dirigido a: Solo residentes</option>
           <option value="Vigilancia">Dirigido a: Solo vigilancia</option>
         </select>
-        <label style="font-size:13px; color:var(--texto-suave); display:block; margin:-4px 0 4px 2px;">Vence el (opcional, déjalo vacío para que no expire)</label>
+        <label class="campo-ayuda" style="margin-top:0;">Publicar el (opcional, déjalo vacío para publicarlo de inmediato). Si eliges una fecha futura, el aviso no se mostrará hasta ese día.</label>
+        <input type="date" id="an-publicacion">
+        <label class="campo-ayuda" style="margin-top:0;">Vence el (opcional, déjalo vacío para que no expire)</label>
         <input type="date" id="an-expiracion">
         <input type="file" id="an-imagen" accept="image/*">
         <button onclick="publicarComunicadoUI()">Publicar comunicado</button>
@@ -464,8 +477,19 @@
       <div class="card">
         <h3>💲 Asignar Cargo / Cuota</h3>
         <select id="cg-apto"></select>
-        <input type="text" id="cg-concepto" placeholder="Concepto (ej. Cuota Administración)">
+        <select id="cg-concepto" onchange="alternarConceptoCargoOtro()">
+          <option value="Cuota de Administración">Cuota de Administración</option>
+          <option value="Retroactivo">Retroactivo</option>
+          <option value="Cuota Extraordinaria">Cuota Extraordinaria</option>
+          <option value="Multas">Multas</option>
+          <option value="Intereses por Mora">Intereses por Mora</option>
+          <option value="Cobro Prejurídico">Cobro Prejurídico</option>
+          <option value="Certificados de Tradición">Certificados de Tradición</option>
+          <option value="Otro">Otro (especificar)</option>
+        </select>
+        <input type="text" id="cg-concepto-otro" placeholder="Escribe el concepto" class="oculto">
         <input type="number" id="cg-valor" placeholder="Valor ($)">
+        <label class="campo-ayuda" style="margin-top:0;">Periodo que cubre este cargo, formato Año-Mes</label>
         <input type="text" id="cg-periodo" placeholder="Periodo (ej. 2026-08)">
         <button onclick="crearCargoUI()">Asignar cargo</button>
         <p id="cg-resultado"></p>
