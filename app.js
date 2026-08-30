@@ -659,7 +659,7 @@ function generarPDFEstadoCuentaUI() {
     ['Teléfono', prop.telefono || '', 'Correo', prop.email || ''],
     ['Fecha de generación', new Date().toLocaleDateString('es-CO'), 'Rol', prop.rol || '']
   ];
-  const filaAlto = 22;
+  const filaAlto = 26;
   doc.setFillColor.apply(doc, GRIS_CLARO);
   doc.rect(margenIzq, y, anchoUtil, filaAlto * filasInfo.length, 'F');
   doc.setDrawColor(216, 216, 212);
@@ -668,7 +668,7 @@ function generarPDFEstadoCuentaUI() {
 
   doc.setFontSize(9);
   filasInfo.forEach(function (fila, i) {
-    const fy = y + filaAlto * i + 14;
+    const fy = y + filaAlto * i + 11;
     doc.setFont('helvetica', 'bold');
     doc.setTextColor.apply(doc, GRIS);
     doc.text(fila[0].toUpperCase(), margenIzq + 8, fy);
