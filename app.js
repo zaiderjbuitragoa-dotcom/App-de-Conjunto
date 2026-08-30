@@ -196,6 +196,21 @@ function registrarUsuarioUI() {
   });
 }
 
+/* ---------------- Lightbox: ampliar imagen completa al hacer click ---------------- */
+function abrirImagenCompleta(src) {
+  if (!src) return;
+  const overlay = document.getElementById('lightbox-overlay');
+  const img = document.getElementById('lightbox-img');
+  img.src = src;
+  overlay.classList.remove('oculto');
+}
+
+function cerrarImagenCompleta() {
+  const overlay = document.getElementById('lightbox-overlay');
+  overlay.classList.add('oculto');
+  document.getElementById('lightbox-img').src = '';
+}
+
 /* ---------------- AVISOS / COMUNICADOS (Carrusel & Formateador Drive) ---------------- */
 const _estadoComunicados = {}; // almacena { lista: [], idx: 0, timer } por contenedor
 const DURACION_SLIDE_AVISO_MS = 5000;
@@ -293,6 +308,7 @@ function renderComunicadoSlide(contenedorId) {
     const fallbackSrc = driveId ? ('https://drive.google.com/thumbnail?id=' + driveId + '&sz=w1000') : c.Adjunto_URL;
     imgTag = `
       <img class="img-comunicado" src="${imgSrc}" alt="${c.Titulo || 'Imagen aviso'}"
+        onclick="event.stopPropagation(); abrirImagenCompleta(this.src)"
         onerror="this.onerror=null; this.src='${fallbackSrc}';">
     `;
   }
@@ -965,7 +981,7 @@ function cargarBadgesVigilancia() {
     .then(function (r) { ponerBadge('badge-vig-novedades', (r.novedades || []).length); });
 
   llamarAPI('getAccesosPiscinaHoy', { idUsuario: SESION.idUsuario })
-    .then(function (r) { ponerBadge('badge-vig-piscina', (r.accesos || []).length); });
+    .then(function (r) { ponerBadge('badge-vig-piscina', (r.accesos || []).filter(function (a) { return a.Estado === 'Pendiente'; }).length); });
 
   llamarAPI('getAlertasActivas', { idUsuario: SESION.idUsuario })
     .then(function (r) { ponerBadge('badge-vig-sos', (r.alertas || []).length); });
@@ -1218,7 +1234,7 @@ function mostrarPanelAdmin(panel) {
   if (panel === 'cargos') { cargarApartamentosCargosSelect(); cargarCargosAdmin(); }
   if (panel === 'aprobaciones') cargarUsuariosPendientesUI();
   if (panel === 'anuncios') cargarComunicadosAdmin();
-  if (panel === 'zonas') { cargarZonasAdmin(); cargarReservasPendientesAdmin(); }
+  if (panel === 'zonas') { cargarZonasAdmin(); cargarReservasPendientesAdmin(); cargarReservasConfirmadasAdmin(); }
   if (panel === 'guardas') { cargarGuardias(); cargarActasAdmin(); }
   if (panel === 'multas') { cargarApartamentosSelect(); cargarMultasAdmin(); }
   if (panel === 'pqrs') cargarPQRSAdmin();
@@ -1397,7 +1413,7 @@ function cargarComunicadosAdmin() {
           ' <span class="badge pendiente">' + (c.Dirigido_A || 'Todos') + '</span>' +
           (programado ? '<br><span style="font-size:12px; color:var(--texto-suave);">📅 Se publicará el ' + formatearFecha(String(c.Fecha_Publicacion).split('T')[0] || c.Fecha_Publicacion) + '</span>' : '') +
           '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Contenido + '</span>' +
-          (c.Adjunto_URL ? '<img class="miniatura-aviso" src="' + c.Adjunto_URL + '">' : '') +
+          (c.Adjunto_URL ? '<img class="miniatura-aviso" src="' + c.Adjunto_URL + '" onclick="abrirImagenCompleta(this.src)">' : '') +
           ((vigente || programado) ? '<br><button class="rojo" style="margin-top:8px; width:auto; padding:8px 14px;" onclick="retirarComunicadoUI(\'' + c.ID_Comunicado + '\')">Retirar</button>' : '') +
           '</div>';
       });
@@ -1477,12 +1493,34 @@ function cargarReservasPendientesAdmin() {
     });
 }
 
+/* ---------------- ADMIN · RESERVAS CONFIRMADAS (solo lectura) ---------------- */
+// ✅ Antes solo se veían las pendientes de aprobar; esta sección
+// separada deja ver qué ya quedó confirmado, para que no parezca
+// que esa información desapareció o no existe.
+function cargarReservasConfirmadasAdmin() {
+  llamarAPI('getReservasConfirmadas', { idUsuario: SESION.idUsuario })
+    .then(function (r) {
+      const cont = document.getElementById('lista-reservas-confirmadas');
+      const reservas = r.reservas || [];
+      cont.innerHTML = reservas.length ? '' : '<p>No hay reservas confirmadas.</p>';
+      reservas.forEach(function (res) {
+        cont.innerHTML += '<div class="item-lista">' +
+          '<b>' + res.Nombre_Zona + '</b> — Apto ' + res.ID_Apto +
+          ' <span class="badge validado">Confirmada</span><br>' +
+          formatearFecha(res.Fecha) + ' (' + formatearHora(res.Hora_Inicio) + ' - ' + formatearHora(res.Hora_Fin) + ')' +
+          '</div>';
+      });
+    });
+}
+
 function resolverReservaUI(idReserva, nuevoEstado) {
   mostrarCargando(true);
   llamarAPI('resolverReserva', { idUsuario: SESION.idUsuario, idReserva: idReserva, nuevoEstado: nuevoEstado })
     .then(function () {
       mostrarCargando(false);
       cargarReservasPendientesAdmin();
+      cargarReservasConfirmadasAdmin();
+      cargarDashboardAdmin();
     });
 }
 
