@@ -77,6 +77,26 @@ function formatearFecha(str) {
   return s;
 }
 
+// ✅ FIX: "Periodo" se guarda como texto libre (ej. "2026-08"), pero
+// Google Sheets a veces lo autodetecta como fecha real. Al leerlo de
+// vuelta llega como ISO con hora ("2026-08-01T05:00:00.000Z") y se veía
+// crudo en el estado de cuenta, el PDF, pagos e historial. Esta función
+// normaliza CUALQUIER variante (texto plano "2026-08" o ISO corrompido)
+// al mismo formato legible "Agosto 2026", así no vuelve a pasar en
+// ningún lugar donde se muestre un período.
+function formatearPeriodo(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const m = s.match(/^(\d{4})-(\d{1,2})/);
+  if (m) {
+    const nombreMes = MESES[parseInt(m[2], 10) - 1];
+    if (nombreMes) return nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1) + ' ' + m[1];
+  }
+  return s;
+}
+
 // Helper central para llamar al backend. Usamos Content-Type
 // text/plain a propósito: evita que el navegador dispare una
 // petición OPTIONS de preflight (Apps Script no la responde bien),
@@ -519,7 +539,7 @@ function cargarHistorialPagos() {
       cont.innerHTML = historial.length ? '' : '<p>Sin pagos registrados.</p>';
       historial.forEach(function (p) {
         const clase = p.Estado === 'Validado' ? 'validado' : (p.Estado === 'Rechazado' ? 'rechazado' : 'pendiente');
-        cont.innerHTML += '<div class="item-lista">$' + Number(p.Valor).toLocaleString('es-CO') + ' — ' + p.Periodo_Pago +
+        cont.innerHTML += '<div class="item-lista">$' + Number(p.Valor).toLocaleString('es-CO') + ' — ' + formatearPeriodo(p.Periodo_Pago) +
           ' <span class="badge ' + clase + '">' + p.Estado + '</span></div>';
       });
     });
@@ -542,7 +562,7 @@ function generarEstadoCuentaUI() {
       const cargos = r.cargos || [];
       const filasCargos = cargos.length
         ? cargos.map(function (c) {
-            return '<div class="item-lista"><b>' + c.Concepto + '</b> (' + c.Periodo + ')' +
+            return '<div class="item-lista"><b>' + c.Concepto + '</b> (' + formatearPeriodo(c.Periodo) + ')' +
               '<br><span style="font-size:13px; color:var(--texto-suave);">' + formatearFecha(c.Fecha) + ' — $' + Number(c.Valor || 0).toLocaleString('es-CO') + '</span></div>';
           }).join('')
         : '<p style="font-size:13px; color:var(--texto-suave);">No tienes cargos asignados todavía.</p>';
@@ -770,7 +790,7 @@ function generarPDFEstadoCuentaUI() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9.5);
       doc.text(String(c.Concepto || ''), colX[0] + 6, y + 13.5);
-      doc.text(String(c.Periodo || ''), colX[1] + 6, y + 13.5);
+      doc.text(formatearPeriodo(c.Periodo), colX[1] + 6, y + 13.5);
       doc.text(formatearFecha(c.Fecha), colX[2] + 6, y + 13.5);
       doc.text('$ ' + Number(c.Valor || 0).toLocaleString('es-CO'), colX[3] - 6, y + 13.5, { align: 'right' });
       y += 20;
@@ -1467,7 +1487,7 @@ function cargarPagosPendientesUI() {
       cont.innerHTML = pagos.length ? '' : '<p>No hay pagos pendientes 🎉</p>';
       pagos.forEach(function (p) {
         cont.innerHTML += '<div class="item-lista">Apto ' + p.ID_Apto + ' — $' + Number(p.Valor).toLocaleString('es-CO') +
-          ' (' + p.Periodo_Pago + ')' +
+          ' (' + formatearPeriodo(p.Periodo_Pago) + ')' +
           (p.Comprobante_URL ? ' — <a href="' + p.Comprobante_URL + '" target="_blank">Ver comprobante</a>' : '') +
           '<br><button class="verde" style="margin-top:6px;" onclick="validarPagoUI(\'' + p.ID_Pago + '\', \'Validado\')">✅ Validar</button>' +
           '<button class="rojo" onclick="validarPagoUI(\'' + p.ID_Pago + '\', \'Rechazado\')">❌ Rechazar</button></div>';
@@ -2038,7 +2058,7 @@ function cargarCargosAdmin() {
       cargos.slice(0, 30).forEach(function (c) {
         cont.innerHTML += '<div class="item-lista">' +
           '<b>Apto ' + c.ID_Apto + '</b> — $' + Number(c.Valor).toLocaleString('es-CO') +
-          '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Concepto + ' (' + c.Periodo + ')</span>' +
+          '<br><span style="font-size:13px; color:var(--texto-suave);">' + c.Concepto + ' (' + formatearPeriodo(c.Periodo) + ')</span>' +
           '</div>';
       });
     });
