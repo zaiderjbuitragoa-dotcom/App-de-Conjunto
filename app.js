@@ -547,13 +547,25 @@ function generarEstadoCuentaUI() {
           }).join('')
         : '<p style="font-size:13px; color:var(--texto-suave);">No tienes cargos asignados todavía.</p>';
 
+      const apto = r.apartamento || {};
+      const prop = r.propietario || {};
+      const mensajeEstado = r.estado === 'Mora'
+        ? '⚠️ Apartamento en mora — es muy importante ponerte al día lo antes posible.'
+        : '✅ ¡Gracias por estar al día! Agradecemos tu puntualidad.';
+
       cont.innerHTML = `
+        <div class="card" style="background:var(--gris-claro, #f2f2f0); margin-top:10px; font-size:13px;">
+          <p style="margin:0 0 4px 0;"><b>Apartamento:</b> ${apto.idApto || SESION.idApto || ''} ${apto.torre ? '· ' + apto.torre : ''}</p>
+          <p style="margin:0 0 4px 0;"><b>Propietario:</b> ${prop.nombre || SESION.nombre || ''}</p>
+          ${prop.documento ? `<p style="margin:0;"><b>Documento:</b> ${prop.documento}</p>` : ''}
+        </div>
         <div class="card" style="background:var(--verde-claro); margin-top:10px;">
           <p style="margin:0 0 4px 0; font-size:13px;">Total cargado: <b>$${Number(r.totalCargos || 0).toLocaleString('es-CO')}</b></p>
           <p style="margin:0 0 4px 0; font-size:13px;">Total pagado (validado): <b>$${Number(r.totalPagado || 0).toLocaleString('es-CO')}</b></p>
-          <p style="margin:0; font-size:15px; font-weight:800; color:${r.estado === 'Mora' ? 'var(--rojo)' : 'var(--verde-oscuro)'};">
-            ${r.estado === 'Mora' ? '🔴 Saldo pendiente: $' + Number(r.saldo).toLocaleString('es-CO') : '🟢 Estás al día'}
+          <p style="margin:0 0 8px 0; font-size:15px; font-weight:800; color:${r.estado === 'Mora' ? 'var(--rojo)' : 'var(--verde-oscuro)'};">
+            ${r.estado === 'Mora' ? 'Saldo pendiente: $' + Number(r.saldo).toLocaleString('es-CO') : 'Estás al día'}
           </p>
+          <p style="margin:0; font-size:13px; font-weight:600; color:${r.estado === 'Mora' ? 'var(--rojo)' : 'var(--verde-oscuro)'};">${mensajeEstado}</p>
         </div>
         <p style="font-size:13px; font-weight:700; margin:14px 0 6px 0;">Detalle de cargos:</p>
         ${filasCargos}
@@ -568,63 +580,219 @@ function generarEstadoCuentaUI() {
 // ✅ FIX: antes el botón hacía window.print(), que abre el diálogo
 // de impresión de TODA la página (menú, otros paneles, etc.), no
 // solo el estado de cuenta. Ahora se genera un archivo PDF real,
-// con únicamente los datos del estado de cuenta, usando jsPDF.
+// con el logo de Entre Lomas, los datos completos del apartamento y
+// del propietario, y un mensaje distinto según si el apartamento
+// está al día (agradecimiento) o en mora (aviso de importancia de
+// ponerse al día), usando jsPDF.
 function generarPDFEstadoCuentaUI() {
   const r = _ultimoEstadoCuenta;
   if (!r) return;
   const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (!jsPDFCtor) { alert('No se pudo cargar el generador de PDF. Revisa tu conexión e inténtalo de nuevo.'); return; }
 
-  const doc = new jsPDFCtor({ unit: 'pt', format: 'letter' });
+  // Paleta de marca Entre Lomas
+  const VERDE = [31, 92, 63];        // #1f5c3f
+  const VERDE_OSCURO = [20, 64, 44]; // #14402c
+  const MARRON = [107, 70, 48];      // #6b4630
+  const GRIS = [85, 85, 85];
+  const GRIS_CLARO = [242, 242, 240];
+  const ROJO = [179, 38, 30];
+  const VERDE_CLARO_BG = [232, 243, 236];
+  const ROJO_CLARO_BG = [251, 233, 231];
+
+  const apto = r.apartamento || {};
+  const prop = r.propietario || {};
+  const enMora = r.estado === 'Mora';
+  const anchoUtil = 516; // 612pt (carta) - 2*48pt de margen
   const margenIzq = 48;
-  let y = 56;
+  let y = 50;
+
+  const doc = new jsPDFCtor({ unit: 'pt', format: 'letter' });
+
+  // ---------- Encabezado con logo ----------
+  try {
+    if (typeof LOGO_ENTRE_LOMAS_B64 !== 'undefined') {
+      doc.addImage(LOGO_ENTRE_LOMAS_B64, 'PNG', margenIzq, y - 6, 46, 44.8);
+    }
+  } catch (e) { /* si el logo falla, se sigue generando el PDF sin él */ }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
-  doc.text('Estado de cuenta', margenIzq, y);
+  doc.setTextColor.apply(doc, VERDE_OSCURO);
+  doc.text('Entre Lomas Apartamentos', margenIzq + 56, y + 12);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor.apply(doc, GRIS);
+  doc.text('Estado de cuenta — Cuotas de administración', margenIzq + 56, y + 26);
+  doc.setTextColor(0, 0, 0);
+  y += 52;
+
+  doc.setDrawColor.apply(doc, VERDE);
+  doc.setLineWidth(1.4);
+  doc.line(margenIzq, y, margenIzq + anchoUtil, y);
   y += 22;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.text('Apartamento: ' + (SESION.idApto || ''), margenIzq, y);
-  y += 16;
-  doc.text('Generado: ' + new Date().toLocaleDateString('es-CO'), margenIzq, y);
-  y += 26;
+  // ---------- Datos del apartamento y propietario ----------
+  const filasInfo = [
+    ['Apartamento', apto.idApto || SESION.idApto || '', 'Torre', apto.torre || ''],
+    ['Propietario', prop.nombre || SESION.nombre || '', 'Documento', prop.documento || ''],
+    ['Teléfono', prop.telefono || '', 'Correo', prop.email || ''],
+    ['Fecha de generación', new Date().toLocaleDateString('es-CO'), 'Rol', prop.rol || '']
+  ];
+  const filaAlto = 22;
+  doc.setFillColor.apply(doc, GRIS_CLARO);
+  doc.rect(margenIzq, y, anchoUtil, filaAlto * filasInfo.length, 'F');
+  doc.setDrawColor(216, 216, 212);
+  doc.setLineWidth(0.6);
+  doc.rect(margenIzq, y, anchoUtil, filaAlto * filasInfo.length, 'S');
 
+  doc.setFontSize(9);
+  filasInfo.forEach(function (fila, i) {
+    const fy = y + filaAlto * i + 14;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor.apply(doc, GRIS);
+    doc.text(fila[0].toUpperCase(), margenIzq + 8, fy);
+    doc.text(fila[2].toUpperCase(), margenIzq + 264, fy);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    doc.text(String(fila[1] || '—'), margenIzq + 8, fy + 12);
+    doc.text(String(fila[3] || '—'), margenIzq + 264, fy + 12);
+    if (i > 0) {
+      doc.setDrawColor(230, 230, 226);
+      doc.line(margenIzq, y + filaAlto * i, margenIzq + anchoUtil, y + filaAlto * i);
+    }
+  });
+  y += filaAlto * filasInfo.length + 26;
+
+  // ---------- Resumen financiero ----------
   doc.setFont('helvetica', 'bold');
-  doc.text('Total cargado: $' + Number(r.totalCargos || 0).toLocaleString('es-CO'), margenIzq, y);
-  y += 16;
-  doc.text('Total pagado (validado): $' + Number(r.totalPagado || 0).toLocaleString('es-CO'), margenIzq, y);
-  y += 16;
-  doc.setTextColor(r.estado === 'Mora' ? 200 : 0, r.estado === 'Mora' ? 30 : 120, 0);
-  doc.text(r.estado === 'Mora' ? 'Saldo pendiente: $' + Number(r.saldo).toLocaleString('es-CO') : 'Estas al dia', margenIzq, y);
+  doc.setFontSize(12.5);
+  doc.setTextColor.apply(doc, VERDE_OSCURO);
+  doc.text('Resumen financiero', margenIzq, y);
   doc.setTextColor(0, 0, 0);
-  y += 30;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text('Detalle de cargos', margenIzq, y);
   y += 18;
+
+  doc.setFontSize(10.5);
+  const resumen = [
+    ['Total cargado', Number(r.totalCargos || 0)],
+    ['Total pagado (validado)', Number(r.totalPagado || 0)],
+    ['Saldo', Number(r.saldo || 0)]
+  ];
+  resumen.forEach(function (fila, i) {
+    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal');
+    doc.setFontSize(i === 2 ? 12 : 10.5);
+    if (i === 2) doc.setTextColor.apply(doc, enMora ? ROJO : VERDE_OSCURO);
+    doc.text(fila[0], margenIzq, y);
+    const valorTxto = '$ ' + fila[1].toLocaleString('es-CO');
+    doc.text(valorTxto, margenIzq + anchoUtil, y, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+    if (i < 2) {
+      doc.setDrawColor(230, 230, 226);
+      doc.line(margenIzq, y + 6, margenIzq + anchoUtil, y + 6);
+    }
+    y += 20;
+  });
+  y += 8;
+
+  // ---------- Mensaje según estado (al día / en mora) ----------
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  const tituloMsj = enMora
+    ? 'APARTAMENTO EN MORA — Saldo pendiente: $ ' + Number(r.saldo || 0).toLocaleString('es-CO')
+    : '¡GRACIAS POR ESTAR AL DÍA!';
+  const cuerpoMsj = enMora
+    ? 'Es muy importante ponerte al día lo antes posible. Recuerda que estar al día evita recargos por ' +
+      'mora, restricciones de acceso vehicular y bloqueos en los servicios del conjunto. Si ya realizaste ' +
+      'tu pago, adjunta el comprobante en la app para que sea validado.'
+    : 'Agradecemos tu puntualidad en el pago de la cuota de administración. Tu aporte nos ayuda a mantener ' +
+      'y mejorar las zonas comunes y los servicios del Conjunto Residencial Entre Lomas.';
+
+  const cuerpoLineas = doc.setFont('helvetica', 'normal').setFontSize(9.5).splitTextToSize(cuerpoMsj, anchoUtil - 24);
+  const altoCaja = 20 + cuerpoLineas.length * 13 + 10;
+
+  doc.setFillColor.apply(doc, enMora ? ROJO_CLARO_BG : VERDE_CLARO_BG);
+  doc.setDrawColor.apply(doc, enMora ? ROJO : VERDE);
+  doc.setLineWidth(0.9);
+  doc.roundedRect(margenIzq, y, anchoUtil, altoCaja, 3, 3, 'FD');
+
+  doc.setTextColor.apply(doc, enMora ? ROJO : VERDE_OSCURO);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(tituloMsj, margenIzq + 12, y + 17);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
+  doc.setFontSize(9.5);
+  doc.text(cuerpoLineas, margenIzq + 12, y + 32);
+  doc.setTextColor(0, 0, 0);
+  y += altoCaja + 24;
+
+  // ---------- Detalle de cargos ----------
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  doc.setTextColor.apply(doc, VERDE_OSCURO);
+  doc.text('Detalle de cargos', margenIzq, y);
+  doc.setTextColor(0, 0, 0);
+  y += 14;
 
   const cargos = r.cargos || [];
-  if (!cargos.length) {
-    doc.text('No tienes cargos asignados todavía.', margenIzq, y);
-    y += 16;
-  } else {
-    cargos.forEach(function (c) {
-      if (y > 740) { doc.addPage(); y = 56; }
-      doc.setFont('helvetica', 'bold');
-      doc.text(String(c.Concepto || '') + ' (' + (c.Periodo || '') + ')', margenIzq, y);
-      y += 14;
-      doc.setFont('helvetica', 'normal');
-      doc.text(formatearFecha(c.Fecha) + ' — $' + Number(c.Valor || 0).toLocaleString('es-CO'), margenIzq, y);
-      y += 18;
-    });
+  const colX = [margenIzq, margenIzq + 216, margenIzq + 336, margenIzq + anchoUtil];
+  const encabezados = ['Concepto', 'Período', 'Fecha', 'Valor'];
+
+  function dibujarEncabezadoTabla() {
+    doc.setFillColor.apply(doc, VERDE);
+    doc.rect(margenIzq, y, anchoUtil, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.text(encabezados[0], colX[0] + 6, y + 13.5);
+    doc.text(encabezados[1], colX[1] + 6, y + 13.5);
+    doc.text(encabezados[2], colX[2] + 6, y + 13.5);
+    doc.text(encabezados[3], colX[3] - 6, y + 13.5, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+    y += 20;
   }
 
-  doc.save('estado-de-cuenta-' + (SESION.idApto || '') + '.pdf');
+  dibujarEncabezadoTabla();
+
+  if (!cargos.length) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.rect(margenIzq, y, anchoUtil, 20, 'S');
+    doc.text('No tienes cargos asignados todavía.', colX[0] + 6, y + 13.5);
+    y += 20;
+  } else {
+    cargos.forEach(function (c, i) {
+      if (y > 700) { doc.addPage(); y = 56; dibujarEncabezadoTabla(); }
+      doc.setFillColor.apply(doc, i % 2 === 0 ? [255, 255, 255] : GRIS_CLARO);
+      doc.rect(margenIzq, y, anchoUtil, 20, 'F');
+      doc.setDrawColor(216, 216, 212);
+      doc.setLineWidth(0.4);
+      doc.rect(margenIzq, y, anchoUtil, 20, 'S');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.text(String(c.Concepto || ''), colX[0] + 6, y + 13.5);
+      doc.text(String(c.Periodo || ''), colX[1] + 6, y + 13.5);
+      doc.text(formatearFecha(c.Fecha), colX[2] + 6, y + 13.5);
+      doc.text('$ ' + Number(c.Valor || 0).toLocaleString('es-CO'), colX[3] - 6, y + 13.5, { align: 'right' });
+      y += 20;
+    });
+  }
+  y += 24;
+
+  // ---------- Pie de página ----------
+  doc.setDrawColor(216, 216, 212);
+  doc.setLineWidth(0.6);
+  doc.line(margenIzq, y, margenIzq + anchoUtil, y);
+  y += 14;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor.apply(doc, GRIS);
+  doc.text(
+    'Entre Lomas Apartamentos · Documento generado automáticamente el ' + new Date().toLocaleDateString('es-CO') +
+    ' · Para consultas comunícate con la administración del conjunto.',
+    margenIzq + anchoUtil / 2, y, { align: 'center', maxWidth: anchoUtil }
+  );
+
+  doc.save('estado-de-cuenta-' + (apto.idApto || SESION.idApto || '') + '.pdf');
 }
 
 function cargarMisVehiculos() {
