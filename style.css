@@ -551,3 +551,49 @@ button.rojo { background: var(--rojo); }
   color: var(--texto-suave);
   margin-top: 18px;
 }
+
+/* ====================================================================
+   Ajuste responsive para tablet / escritorio
+   ====================================================================
+   Antes, `.contenedor` tenía un max-width fijo de 480px (pensado para
+   celular) pegado a la izquierda en cualquier pantalla, por eso en PC
+   se veía como si la app se hubiera abierto en modo móvil. Ahora, a
+   partir de cierto ancho de pantalla, la app se centra, se le da más
+   aire y la cuadrícula de módulos aprovecha el espacio extra — pero el
+   login y los formularios se mantienen compactos (no queremos inputs
+   ni botones estirados de punta a punta de un monitor grande). */
+@media (min-width: 700px) {
+  body { background: #eef1f0; }
+  .contenedor {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 28px 32px 90px 32px;
+    background: var(--blanco);
+    min-height: 100vh;
+    box-shadow: 0 0 0 1px var(--borde);
+  }
+  .grid-modulos { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .login-card { max-width: 400px; margin: 40px auto 0 auto; }
+  .tabbar {
+    left: 50%; right: auto;
+    transform: translateX(-50%);
+    width: 760px; max-width: 92vw;
+    border-radius: 18px 18px 0 0;
+    border: 1px solid var(--borde); border-bottom: none;
+  }
+  .panel-modal {
+    left: 50%; right: auto;
+    transform: translateX(-50%);
+    width: 760px; max-width: 92vw;
+    box-shadow: 0 0 40px rgba(15, 23, 42, 0.18);
+    border-left: 1px solid var(--borde);
+    border-right: 1px solid var(--borde);
+  }
+}
+
+@media (min-width: 1100px) {
+  .contenedor { max-width: 1000px; }
+  .grid-modulos { grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .tabbar { width: 1000px; }
+  .panel-modal { width: 1000px; }
+}
